@@ -1,0 +1,4 @@
+# Managed by Ansible (IncServer repo, roles/healthchecks). Pings healthchecks.io check "{{ item.key }}".
+[Service]
+ExecStartPre=-/usr/local/sbin/hc-ping {{ item.key }} start
+ExecStopPost=-/usr/local/sbin/hc-ping {{ item.key }} stop{{ (' ' ~ item.success_stamp) if item.success_stamp is defined else '' }}

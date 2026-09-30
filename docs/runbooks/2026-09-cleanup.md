@@ -33,7 +33,7 @@ On the box, "before" copies live in `/root/cleanup-2026-09/` (0700, covered by r
 | What | Where / who |
 |---|---|
 | ~~Dual-stack web~~ done by hand 2026-09-30; the Ansible `nginx` role must keep the `[::]` listens (and should add a catch-all `default_server` returning 444, none exists today) | Ansible |
-| healthchecks.io: start / success / fail pings for `restic-backup`, `certbot`, `unattended-upgrades` (email only) | Needs the 3 ping URLs from the owner |
+| ~~healthchecks.io: start / success / fail pings for `restic-backup`, `certbot`, `unattended-upgrades` (email only)~~ done 2026-09-30: role `healthchecks` applied by the owner (URLs in the vault); certbot run by hand at 22:40, start + success pings seen on healthchecks.io. Unattended-upgrades counts as ok only if `upgrade-stamp` was touched (`apt.systemd.daily` exits 0 on failure), so a manual same-day rerun reports a false fail. Failure path tested locally only | done |
 | Deploy: per-Environment keys, secrets stay on the box, pinned actions + host key, `--chmod` instead of `--chown`; staging deploys fail until then | delivery-order-app #553: merged 2026-09-30 (PR #555) into `release/v1.4.0`; host side (per-Environment keys with `restrict`, drop `github-deploy`) is next |
 | Node 22 via NodeSource, drop per-user nvm | delivery-order-app #554 + Ansible |
 | Delete groups `peperoncini-www`, `peperoncini-webgrp` (`mailhog-www` done 2026-09-30) | After #553 lands |

@@ -1,0 +1,40 @@
+# healthchecks.io (email only) for the jobs that fail silently: start / success / fail pings, with the run's journal.
+# A job is wired only once its ping URL is in the vault; until then nothing here touches the box.
+# Uptime is not covered here: the owner's okok.now probes the sites.
+- name: Jobs with a ping URL
+  ansible.builtin.set_fact:
+    healthchecks_active: "{{ healthchecks_jobs | selectattr('url', 'truthy') | list }}"
+  no_log: true
+
+- name: Healthchecks
+  when: healthchecks_active | length > 0
+  block:
+    - name: Ping script
+      ansible.builtin.copy: { src: hc-ping, dest: /usr/local/sbin/hc-ping, mode: "0755" }
+
+    - name: URL directory
+      ansible.builtin.file: { path: /etc/healthchecks, state: directory, mode: "0700" }
+
+    - name: Ping URLs
+      ansible.builtin.copy:
+        content: "{{ item.url }}\n"
+        dest: "/etc/healthchecks/{{ item.key }}.url"
+        mode: "0600"
+      loop: "{{ healthchecks_active }}"
+      loop_control: { label: "{{ item.key }}" }
+      no_log: true
+
+    - name: Drop-in directories
+      ansible.builtin.file: { path: "/etc/systemd/system/{{ item.unit }}.d", state: directory, mode: "0755" }
+      loop: "{{ healthchecks_active }}"
+      loop_control: { label: "{{ item.unit }}" }
+
+    - name: Drop-ins
+      ansible.builtin.template:
+        src: dropin.conf.j2
+        dest: "/etc/systemd/system/{{ item.unit }}.d/healthchecks.conf"
+        mode: "0644"
+      loop: "{{ healthchecks_active }}"
+      loop_control: { label: "{{ item.unit }}" }
+      notify: Reload systemd
+      # Applies from each job's next run; nothing is restarted.

@@ -16,6 +16,7 @@ Vocabulary (Tenant, Environment, ...): [CONTEXT.md](CONTEXT.md).
 | Netdata | host (apt repo) | netdata.kuuak.ch (basic auth) | `netdata` |
 | restic → Swiss Backup cluster 04, nightly 00:00 | host (systemd) | – | `backup` |
 | Weekly reboot window, Tue 04:30, only if required | host (systemd) | – | `base` |
+| healthchecks.io pings (email) for restic-backup, certbot, unattended-upgrades | systemd drop-ins + `/usr/local/sbin/hc-ping` | – | `healthchecks` (wired once the URLs are in the vault) |
 
 ## Usage
 
@@ -60,7 +61,6 @@ with a filled vault**: the restic env and rclone.conf templates were written wit
   config (Node 22 from NodeSource joins its allowed origins with delivery-order-app #554)
 - Tenant `authorized_keys`: per-Environment deploy keys arrive with delivery-order-app #553
 - PostgreSQL / Redis config (both stock apart from what the packages ship), the Tenants' app files and `.env`
-- healthchecks.io pings (handoff step 4; URLs go in the vault)
 
 ## Gotchas
 

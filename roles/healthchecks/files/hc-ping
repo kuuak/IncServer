@@ -1,0 +1,32 @@
+#!/bin/bash
+# Managed by Ansible (IncServer repo, roles/healthchecks). healthchecks.io pings for a systemd job, from its drop-in:
+#   ExecStartPre=-/usr/local/sbin/hc-ping <key> start
+#   ExecStopPost=-/usr/local/sbin/hc-ping <key> stop [success-stamp]
+# The ping URL is in /etc/healthchecks/<key>.url (0600); no URL file = no ping. Success = the unit's result is
+# "success" and, when a stamp is given, the stamp was touched during this run (apt.systemd.daily exits 0 even when
+# unattended-upgrade fails; it only touches upgrade-stamp on success). The run's journal goes along as the body.
+set -u
+key=$1 action=$2 stamp=${3:-}
+conf_dir=${HC_CONF_DIR:-/etc/healthchecks} run_dir=${HC_RUN_DIR:-/run/healthchecks}
+url=$(cat "$conf_dir/$key.url" 2>/dev/null) || exit 0
+mark=$run_dir/$key.start
+ping() { curl -fsS -m 10 --retry 3 -o /dev/null "$@"; }
+
+case $action in
+start)
+    mkdir -p "$run_dir" && touch "$mark"
+    ping "$url/start"
+    ;;
+stop)
+    ok=0
+    if [ "${SERVICE_RESULT:-}" = success ]; then
+        if [ -z "$stamp" ] || [ "$stamp" -nt "$mark" ]; then ok=1; fi
+    fi
+    body="result=${SERVICE_RESULT:-?} exit=${EXIT_CODE:-?}/${EXIT_STATUS:-?}${stamp:+ stamp-touched=$([ "$stamp" -nt "$mark" ] && echo yes || echo no)}
+$(journalctl -o cat -n 100 _SYSTEMD_INVOCATION_ID="${INVOCATION_ID:-none}" 2>/dev/null | tail -c 10000)"
+    if [ $ok = 1 ]; then ping --data-raw "$body" "$url"; else ping --data-raw "$body" "$url/fail"; fi
+    ;;
+*)
+    echo "usage: hc-ping <key> start|stop [success-stamp]" >&2; exit 2
+    ;;
+esac
