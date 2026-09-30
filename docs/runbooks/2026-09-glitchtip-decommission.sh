@@ -14,8 +14,9 @@ D=/root/cleanup-2026-09/glitchtip
 step() { echo "== $(date -Is) $*"; }
 
 step "preflight"
-[ "$(dig +short A glitchtip.kuuak.ch @ns11.infomaniak.ch)" = 83.228.217.113 ] || { echo "A record not on KuuakServer yet"; exit 1; }
-[ "$(dig +short AAAA glitchtip.kuuak.ch @ns11.infomaniak.ch)" = 2001:1600:18:200::3d2 ] || { echo "AAAA record not on KuuakServer yet"; exit 1; }
+# grep, not =: glitchtip.kuuak.ch is a CNAME to kuuak.ch, so dig +short prints "kuuak.ch." before the address.
+dig +short A glitchtip.kuuak.ch @ns11.infomaniak.ch | grep -xF 83.228.217.113 >/dev/null || { echo "A record not on KuuakServer yet"; exit 1; }
+dig +short AAAA glitchtip.kuuak.ch @ns11.infomaniak.ch | grep -xF 2001:1600:18:200::3d2 >/dev/null || { echo "AAAA record not on KuuakServer yet"; exit 1; }
 [ "$(curl -s -o /dev/null -w '%{http_code}' --resolve glitchtip.kuuak.ch:443:83.228.217.113 https://glitchtip.kuuak.ch/_health/)" = 200 ] \
     || { echo "GlitchTip on KuuakServer not healthy"; exit 1; }
 [ -s "$D/pg_dumpall.sql" ] || { echo "final dump missing"; exit 1; }

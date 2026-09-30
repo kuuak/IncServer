@@ -68,5 +68,5 @@ Only needed if the script aborts halfway or prod misbehaves. The last `== ` line
 | Date | Change | By |
 |---|---|---|
 | 2026-09-29 | Infomaniak portal firewall: TCP 1025 (Mailpit SMTP) restricted to IPv4 of IncServer and KuuakServer. IPv6 1025 verified closed | owner |
-| 2026-09-30 | DNS `glitchtip.kuuak.ch` A → `83.228.217.113`, AAAA → `2001:1600:18:200::3d2` (KuuakServer) | owner (switched 2026-09-30, propagating) |
+| 2026-09-30 | DNS `glitchtip.kuuak.ch` → CNAME `kuuak.ch` (KuuakServer, `83.228.217.113` / `2001:1600:18:200::3d2`) | owner |
 | 2026-09-29 | DNS `pizzeria-peperoncini.ch` AAAA: stale DigitalOcean `2a03:b0c0:3:f0::3a30:9000` replaced by IncServer `2001:1600:18:100::68`. Web on v6 served since 2026-09-30 (see table above) | owner |
