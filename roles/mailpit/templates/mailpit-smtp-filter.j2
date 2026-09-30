@@ -1,0 +1,11 @@
+#!/bin/bash
+# Managed by Ansible (IncServer repo, roles/mailpit). Rebuilds DOCKER-USER: only the listed hosts may reach
+# Mailpit's published SMTP port. DOCKER-USER holds nothing else on this box, so it is flushed and rewritten.
+set -euo pipefail
+iptables -N DOCKER-USER 2>/dev/null || true
+iptables -F DOCKER-USER
+{% for ip in mailpit_smtp_allowed_v4 %}
+iptables -A DOCKER-USER -p tcp -m conntrack --ctorigdstport 1025 --ctdir ORIGINAL -s {{ ip }} -j RETURN
+{% endfor %}
+iptables -A DOCKER-USER -p tcp -m conntrack --ctorigdstport 1025 --ctdir ORIGINAL -j DROP
+iptables -A DOCKER-USER -j RETURN

@@ -1,0 +1,35 @@
+{% set e = item.1 %}
+# Redirect all HTTP traffic to HTTPS
+server {
+	listen 80;
+	listen [::]:80;
+	server_name {{ e.host }};
+	return 301 https://{{ e.host }}$request_uri;
+}
+
+# Main server block for HTTPS
+server {
+	listen 443 ssl http2;
+	listen [::]:443 ssl http2;
+	server_name {{ e.host }};
+
+	# Basic Authentication Configuration
+{% if e.basic_auth | default(false) %}
+	auth_basic "Restricted Content";
+	auth_basic_user_file /var/www/{{ item.0.domain }}/.htpasswd;
+{% else %}
+	# auth_basic "Restricted Content";
+	# auth_basic_user_file /var/www/{{ item.0.domain }}/.htpasswd;
+{% endif %}
+
+	ssl_certificate /etc/letsencrypt/live/{{ e.cert }}/fullchain.pem;
+	ssl_certificate_key /etc/letsencrypt/live/{{ e.cert }}/privkey.pem;
+
+	access_log  /var/log/nginx/{{ e.host }}-access.log;
+	error_log   /var/log/nginx/{{ e.host }}-error.log;
+
+	root /var/www/{{ item.0.domain }}/{{ e.name }}/current/public;
+
+	# Include shared location blocks
+	include /etc/nginx/sites-available/app-locations.conf;
+}

@@ -1,0 +1,148 @@
+# One pass per Tenant Environment (see CONTEXT.md and the `tenants` var). Template for new Environments:
+# docs/runbooks/2026-09-step8-staging-identity.sh is how Peperoncini's were made by hand.
+#
+# Not managed (yet): the Environment's app files and .env (deploys own them), TLS certificates (certbot),
+# authorized_keys (per-Environment deploy keys arrive with delivery-order-app #553, then they move here).
+
+- name: Tenant domain directory
+  ansible.builtin.file: { path: "/var/www/{{ item.domain }}", state: directory, owner: root, group: root, mode: "0755" }
+  loop: "{{ tenants }}"
+  loop_control: { label: "{{ item.domain }}" }
+
+- name: Environment user (no password; `sudo -iu <user>`)
+  ansible.builtin.user:
+    name: "{{ item.1.user }}"
+    home: "/var/www/{{ item.0.domain }}/{{ item.1.name }}"
+    shell: /bin/bash
+    create_home: false
+  loop: "{{ tenants | subelements('environments') }}"
+  loop_control: { label: "{{ item.1.user }}" }
+
+- name: Environment home (0711, app in current/)
+  ansible.builtin.file:
+    path: "/var/www/{{ item.0.domain }}/{{ item.1.name }}"
+    state: directory
+    owner: "{{ item.1.user }}"
+    group: "{{ item.1.user }}"
+    mode: "0711"
+  loop: "{{ tenants | subelements('environments') }}"
+  loop_control: { label: "{{ item.1.user }}" }
+
+- name: Private directories (.ssh, pre-deploy dumps)
+  ansible.builtin.file:
+    path: "/var/www/{{ item.0.0.domain }}/{{ item.0.1.name }}/{{ item.1 }}"
+    state: directory
+    owner: "{{ item.0.1.user }}"
+    group: "{{ item.0.1.user }}"
+    mode: "0700"
+  loop: "{{ tenants | subelements('environments') | product(['.ssh', 'backups']) | list }}"
+  loop_control: { label: "{{ item.0.1.user }} {{ item.1 }}" }
+
+- name: Prune pre-deploy dumps (systemd-tmpfiles-clean, daily)
+  ansible.builtin.template: { src: tmpfiles-backups.conf.j2, dest: /etc/tmpfiles.d/tenant-backups.conf, mode: "0644" }
+  when: tenant_backups_max_age_days | int > 0
+
+- name: No dump pruning
+  ansible.builtin.file: { path: /etc/tmpfiles.d/tenant-backups.conf, state: absent }
+  when: tenant_backups_max_age_days | int == 0
+
+# --- PM2 --------------------------------------------------------------------------
+- name: PM2 unit
+  ansible.builtin.template:
+    src: pm2.service.j2
+    dest: "/etc/systemd/system/pm2-{{ item.1.user }}.service"
+    mode: "0644"
+  loop: "{{ tenants | subelements('environments') }}"
+  loop_control: { label: "pm2-{{ item.1.user }}" }
+  notify: Reload systemd
+  # No restart handler on purpose: restarting PM2 takes the Environment down. Restart by hand in a window.
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable PM2 unit (not started here; a new Environment has no app yet)
+  ansible.builtin.systemd: { name: "pm2-{{ item.1.user }}.service", enabled: true }
+  loop: "{{ tenants | subelements('environments') }}"
+  loop_control: { label: "pm2-{{ item.1.user }}" }
+  ignore_errors: "{{ ansible_check_mode }}"   # the unit does not exist yet during a first dry run
+
+# --- Postgres (psql as `postgres`; the box has no psycopg2 for the postgresql modules) ---------
+- name: Read Postgres state
+  ansible.builtin.command:
+    argv: [runuser, -u, postgres, --, psql, -X, -At, -v, "u={{ item.1.user }}", -v, "d={{ item.1.db }}"]
+    stdin: |
+      SELECT (SELECT count(*) FROM pg_roles WHERE rolname = :'u' AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb)
+        || '|' || coalesce((SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = :'d'), '')
+        || '|' || coalesce((SELECT has_database_privilege('public', datname, 'CONNECT')::text FROM pg_database WHERE datname = :'d'), '');
+  register: tenant_pg
+  changed_when: false
+  check_mode: false
+  loop: "{{ tenants | subelements('environments') }}"
+  loop_control: { label: "{{ item.1.db }}" }
+
+- name: DB owned by someone else needs a hand-made REASSIGN (see step 8 in docs/runbooks)
+  ansible.builtin.fail:
+    msg: "{{ item.item.1.db }} is owned by {{ item.stdout.split('|')[1] }}, expected {{ item.item.1.user }}"
+  when: item.stdout.split('|')[1] not in ['', item.item.1.user]
+  loop: "{{ tenant_pg.results }}"
+  loop_control: { label: "{{ item.item.1.db }}" }
+
+- name: Postgres drift (check mode reports, a real run fixes)
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.item.1.db }}: role ok={{ item.stdout.split('|')[0] == '1' }},
+      db exists={{ item.stdout.split('|')[1] != '' }},
+      PUBLIC can connect={{ item.stdout.split('|')[2] == 'true' }}
+  changed_when: item.stdout != '1|' ~ item.item.1.user ~ '|false'
+  when: ansible_check_mode
+  loop: "{{ tenant_pg.results }}"
+  loop_control: { label: "{{ item.item.1.db }}" }
+
+- name: Create role / DB, revoke CONNECT from PUBLIC
+  ansible.builtin.command:
+    argv: [runuser, -u, postgres, --, psql, -X, -q, -v, ON_ERROR_STOP=1, -v, "u={{ item.item.1.user }}", -v, "d={{ item.item.1.db }}"]
+    stdin: |
+      \set pw '{{ vault_tenant_db_passwords[item.item.1.user] | default('') }}'
+      SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'u', :'pw') WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'u') \gexec
+      ALTER ROLE :"u" LOGIN NOSUPERUSER NOCREATEDB;
+      SELECT format('CREATE DATABASE %I OWNER %I', :'d', :'u') WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'d') \gexec
+      REVOKE CONNECT ON DATABASE :"d" FROM PUBLIC;
+  changed_when: true
+  no_log: true
+  when:
+    - not ansible_check_mode
+    - item.stdout != '1|' ~ item.item.1.user ~ '|false'
+    # Never create a login role without its password
+    - item.stdout.split('|')[0] == '1' or vault_tenant_db_passwords[item.item.1.user] | default('') | length > 0
+  loop: "{{ tenant_pg.results }}"
+  loop_control: { label: "{{ item.item.1.db }}" }
+
+# --- nginx --------------------------------------------------------------------------
+- name: Vhost from the template
+  ansible.builtin.template:
+    src: vhost.conf.j2
+    dest: "/etc/nginx/sites-available/{{ item.1.host }}.conf"
+    mode: "0644"
+  when: item.1.vhost_file is not defined
+  loop: "{{ tenants | subelements('environments') }}"
+  loop_control: { label: "{{ item.1.host }}" }
+  notify: Reload nginx
+
+- name: Vhost shipped verbatim
+  ansible.builtin.copy:
+    src: "vhosts/{{ item.1.vhost_file }}"
+    dest: "/etc/nginx/sites-available/{{ item.1.vhost_file }}"
+    mode: "0644"
+  when: item.1.vhost_file is defined
+  loop: "{{ tenants | subelements('environments') }}"
+  loop_control: { label: "{{ item.1.host }}" }
+  notify: Reload nginx
+
+- name: Enable vhost
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ item.1.vhost_file | default(item.1.host ~ '.conf') }}"
+    dest: "/etc/nginx/sites-enabled/{{ item.1.vhost_file | default(item.1.host ~ '.conf') }}"
+    state: link
+  loop: "{{ tenants | subelements('environments') }}"
+  loop_control: { label: "{{ item.1.host }}" }
+  notify: Reload nginx

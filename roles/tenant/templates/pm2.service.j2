@@ -1,0 +1,24 @@
+{% set home = '/var/www/' ~ item.0.domain ~ '/' ~ item.1.name %}
+{% set node = home ~ '/.nvm/versions/node/' ~ tenant_nvm_node_version %}
+[Unit]
+Description=PM2 process manager
+Documentation=https://pm2.keymetrics.io/
+After=network.target
+
+[Service]
+Type=forking
+User={{ item.1.user }}
+LimitNOFILE=infinity
+LimitNPROC=infinity
+LimitCORE=infinity
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:{{ node }}/bin:/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+Environment=PM2_HOME={{ home }}/.pm2
+PIDFile={{ home }}/.pm2/pm2.pid
+Restart=on-failure
+
+ExecStart={{ node }}/lib/node_modules/pm2/bin/pm2 resurrect
+ExecReload={{ node }}/lib/node_modules/pm2/bin/pm2 reload all
+ExecStop={{ node }}/lib/node_modules/pm2/bin/pm2 kill
+
+[Install]
+WantedBy=multi-user.target

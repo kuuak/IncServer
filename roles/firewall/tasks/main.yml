@@ -1,0 +1,9 @@
+# Docker-published ports bypass ufw: see the mailpit role for the one that is public (SMTP 1025).
+- name: Allow app profiles (v4 + v6)
+  community.general.ufw: { rule: allow, name: "{{ item }}" }
+  loop: "{{ firewall_allowed_apps }}"
+  when: firewall_enabled
+
+- name: Default deny incoming, enable ufw
+  community.general.ufw: { state: enabled, default: deny, direction: incoming }
+  when: firewall_enabled

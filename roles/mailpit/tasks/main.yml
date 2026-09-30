@@ -1,0 +1,71 @@
+# Mailpit catches every mail the apps send (delivery-order-app ADR-0003). The directory keeps its MailHog-era
+# name, as does the vhost (mailhog.kuuak.ch). Compose project runs as root; data in ./data (SQLite).
+- name: Compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ mailpit_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recreate mailpit
+
+- name: Basic-auth file
+  ansible.builtin.copy:
+    content: "{{ vault_mailpit_htpasswd }}\n"
+    dest: "{{ mailpit_dir }}/.htpasswd"
+    owner: root
+    group: www-data
+    mode: "0640"
+  no_log: true
+  when: vault_mailpit_htpasswd | default('') | length > 0
+
+- name: List running mailpit containers
+  ansible.builtin.command: docker compose ps --quiet
+  args: { chdir: "{{ mailpit_dir }}" }
+  register: mailpit_ps
+  changed_when: false
+  check_mode: false
+
+- name: Start stack
+  ansible.builtin.command: docker compose up --detach
+  args: { chdir: "{{ mailpit_dir }}" }
+  changed_when: true
+  when: mailpit_state == "started" and mailpit_ps.stdout | length == 0
+
+- name: Stop stack (data is kept)
+  ansible.builtin.command: docker compose down
+  args: { chdir: "{{ mailpit_dir }}" }
+  changed_when: true
+  when: mailpit_state == "stopped" and mailpit_ps.stdout | length > 0
+
+# SMTP 1025 is published on 0.0.0.0 and Docker's NAT bypasses ufw. DOCKER-USER is Docker's hook for our own
+# rules; it comes back empty after every reboot, hence a unit ordered after docker.service.
+- name: SMTP source filter script
+  ansible.builtin.template: { src: mailpit-smtp-filter.j2, dest: /usr/local/sbin/mailpit-smtp-filter, mode: "0755" }
+  when: mailpit_smtp_filter_enabled
+  notify: Apply SMTP filter
+
+- name: SMTP source filter unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/mailpit-smtp-filter.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Allow Mailpit SMTP (1025) only from IncServer and KuuakServer
+      After=docker.service
+      PartOf=docker.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/local/sbin/mailpit-smtp-filter
+
+      [Install]
+      WantedBy=docker.service
+  when: mailpit_smtp_filter_enabled
+  notify: Apply SMTP filter
+
+- name: Enable SMTP source filter
+  ansible.builtin.systemd: { name: mailpit-smtp-filter.service, enabled: true, daemon_reload: true }
+  when: mailpit_smtp_filter_enabled
+  ignore_errors: "{{ ansible_check_mode }}"   # the unit does not exist yet during a first dry run

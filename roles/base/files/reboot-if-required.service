@@ -1,0 +1,7 @@
+[Unit]
+Description=Reboot if an installed update requires it
+After=apt-daily-upgrade.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/reboot-if-required

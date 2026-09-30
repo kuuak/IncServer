@@ -1,0 +1,13 @@
+# Map directive for delivery order apps
+# This file should be included in the http context of your main nginx.conf
+# Add this line to your nginx.conf: include /etc/nginx/conf.d/app-ports-map.conf;
+
+map $host $app_port {
+{% for t in tenants %}
+	# {{ t.label }}
+{% for e in t.environments %}
+	{{ e.host }} {{ e.port }};
+{% endfor %}
+
+{% endfor %}
+}

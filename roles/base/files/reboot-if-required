@@ -1,0 +1,9 @@
+#!/bin/bash
+# Weekly maintenance reboot: only when an installed update asks for it (kernel, libc, ...).
+# Triggered by reboot-if-required.timer (Tue 04:30 Europe/Zurich). See IncServer docs/runbooks/2026-09-cleanup.md.
+if [ -f /var/run/reboot-required ]; then
+    logger -t reboot-if-required "reboot required by: $(tr '\n' ' ' < /var/run/reboot-required.pkgs 2>/dev/null)"
+    systemctl reboot
+else
+    logger -t reboot-if-required "no reboot required"
+fi

@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly maintenance reboot window (Tue 04:30, only if required)
+
+[Timer]
+OnCalendar=Tue *-*-* 04:30:00 Europe/Zurich
+# A missed window is skipped, never caught up at boot
+Persistent=false
+
+[Install]
+WantedBy=timers.target

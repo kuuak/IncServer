@@ -1,0 +1,6 @@
+# Managed by Ansible (IncServer repo, roles/tenant). Pre-deploy dumps older than {{ tenant_backups_max_age_days }} days.
+{% for t in tenants %}
+{% for e in t.environments %}
+e /var/www/{{ t.domain }}/{{ e.name }}/backups - - - {{ tenant_backups_max_age_days }}d
+{% endfor %}
+{% endfor %}

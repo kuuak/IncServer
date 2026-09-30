@@ -1,0 +1,8 @@
+# Secrets never enter git unencrypted.
+group_vars/all/vault.yml.plain
+*.env
+!*.env.example
+*.retry
+.vault-pass
+# Local Ansible run logs (check.log, ...)
+*.log

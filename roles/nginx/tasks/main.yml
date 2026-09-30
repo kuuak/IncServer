@@ -1,0 +1,42 @@
+- name: Main nginx.conf
+  ansible.builtin.copy: { src: nginx.conf, dest: /etc/nginx/nginx.conf, mode: "0644" }
+  notify: Reload nginx
+
+# Host -> app port for every Tenant Environment; app-locations.conf proxies to 127.0.0.1:$app_port.
+# nginx.conf includes this file explicitly AND through conf.d/*.conf (as found; nginx -t is fine with it).
+- name: Tenant port map
+  ansible.builtin.template: { src: app-ports-map.conf.j2, dest: /etc/nginx/conf.d/app-ports-map.conf, mode: "0644" }
+  notify: Reload nginx
+
+# Lives in sites-available (not enabled; included by every tenant vhost). Owner left as found (ubuntu).
+- name: Shared tenant locations
+  ansible.builtin.copy: { src: app-locations.conf, dest: /etc/nginx/sites-available/app-locations.conf, mode: "0644" }
+  notify: Reload nginx
+
+- name: Tool vhosts
+  ansible.builtin.copy:
+    src: "{{ item }}.conf"
+    dest: "/etc/nginx/sites-available/{{ item }}.conf"
+    mode: "0644"
+  loop: "{{ nginx_tool_sites }}"
+  notify: Reload nginx
+
+- name: Enable tool vhosts
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ item }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ item }}.conf"
+    state: link
+  loop: "{{ nginx_tool_sites }}"
+  notify: Reload nginx
+
+- name: Catch-all default server
+  ansible.builtin.copy: { src: 000-catch-all.conf, dest: /etc/nginx/sites-available/000-catch-all.conf, mode: "0644" }
+  when: nginx_catch_all_enabled
+  notify: Reload nginx
+
+- name: Enable catch-all default server  # noqa: risky-file-permissions (a symlink, or removing one)
+  ansible.builtin.file:
+    src: "{{ '/etc/nginx/sites-available/000-catch-all.conf' if nginx_catch_all_enabled else omit }}"
+    dest: /etc/nginx/sites-enabled/000-catch-all.conf
+    state: "{{ 'link' if nginx_catch_all_enabled else 'absent' }}"
+  notify: Reload nginx

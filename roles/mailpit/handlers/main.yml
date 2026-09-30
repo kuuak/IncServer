@@ -1,0 +1,8 @@
+- name: Recreate mailpit
+  ansible.builtin.command: docker compose up --detach
+  args: { chdir: "{{ mailpit_dir }}" }
+  changed_when: true
+  when: mailpit_state == "started"
+
+- name: Apply SMTP filter
+  ansible.builtin.systemd: { name: mailpit-smtp-filter.service, state: restarted, daemon_reload: true }

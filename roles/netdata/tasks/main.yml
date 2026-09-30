@@ -1,0 +1,19 @@
+# Netdata comes from its own apt repo (repository.netdata.cloud) and updates itself through apt.
+# Only what matters is managed: the UI stays on localhost, nginx (netdata.kuuak.ch) adds basic auth.
+- name: Bind the UI to localhost
+  ansible.builtin.lineinfile:
+    path: /etc/netdata/netdata.conf
+    regexp: '^\s*bind to\s*='
+    line: "\tbind to = 127.0.0.1"
+    insertafter: '^\[web\]'
+  notify: Restart netdata
+
+- name: Basic-auth file
+  ansible.builtin.copy:
+    content: "{{ vault_netdata_htpasswd }}\n"
+    dest: /var/www/netdata.kuuak.ch/.htpasswd
+    owner: root
+    group: www-data
+    mode: "0640"
+  no_log: true
+  when: vault_netdata_htpasswd | default('') | length > 0

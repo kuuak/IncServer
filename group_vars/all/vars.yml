@@ -1,0 +1,78 @@
+# --- Hardening switches -------------------------------------------------------
+# Everything that would change the box ships OFF, so the first run is a no-op against it.
+# Turn one on, run with --check --diff, then apply. See docs/runbooks.
+
+# Swap and OOM: as on the box since the 2026-09 cleanup.
+swap_size_mb: 2048
+swap_swappiness: 10
+oom_protected_units: [ssh, systemd-journald, nginx, postgresql@16-main]
+
+# ufw is ON here (unlike KuuakServer), mirroring the box: 22/80/443 v4+v6 through the stock app profiles.
+# Infomaniak's portal firewall sits in front as well. Docker-published ports bypass ufw: see mailpit_smtp_*.
+firewall_enabled: true
+firewall_allowed_apps: [OpenSSH, Nginx Full]
+
+# Docker's json-file logs are unbounded without a daemon.json (none on the box today). Turning this on
+# writes the file only; dockerd must be restarted by hand in a window (it restarts every container).
+docker_daemon_json_enabled: false
+
+# nginx: a catch-all default_server that answers unknown Host headers with 444 and rejects TLS handshakes
+# for unknown SNI. None exists today, so today the first vhost loaded answers them.
+nginx_catch_all_enabled: false
+
+# --- Tools on the box (internal, behind nginx basic auth) ----------------------
+nginx_tool_sites: [mailhog.kuuak.ch, netdata.kuuak.ch]
+
+# Mailpit: catches all app mail (delivery-order-app ADR-0003: no mail leaves the box). Stays here.
+mailpit_dir: /var/www/mailhog.kuuak.ch
+mailpit_image: axllent/mailpit          # unpinned on the box; pin (e.g. axllent/mailpit:v1.x.y) in a window
+mailpit_state: started                  # started | stopped
+# SMTP 1025 is published on 0.0.0.0 and Docker bypasses ufw; today only the portal firewall limits it to
+# these two hosts. On = DOCKER-USER rules (IPv4; 1025 is not published on v6) that drop everyone else.
+mailpit_smtp_filter_enabled: false
+mailpit_smtp_allowed_v4:
+  - 83.228.208.186     # IncServer
+  - 83.228.217.113     # KuuakServer
+
+# --- Tenants --------------------------------------------------------------------
+# One entry per Tenant, one per Environment (see CONTEXT.md). Every Environment gets its own Unix user
+# (no password; reach it with `sudo -iu <user>`), home /var/www/<domain>/<env> (0711, app in current/),
+# PM2 unit, Postgres role owning its DB with CONNECT revoked from PUBLIC, and an nginx vhost + port-map line.
+# Certificates are not managed: issue with `certbot certonly --nginx -d <host>` before enabling a new vhost.
+#
+#   host      the canonical server_name, and the key of its line in conf.d/app-ports-map.conf
+#   port      where its Next.js listens
+#   vhost_file  optional: ship roles/tenant/files/vhosts/<file> verbatim instead of the template
+#   basic_auth  template only; true = auth_basic with /var/www/<domain>/.htpasswd
+tenants:
+  - name: peperoncini
+    label: Pizzeria Peperoncini
+    domain: pizzeria-peperoncini.ch
+    environments:
+      - name: production
+        user: peperoncini
+        db: pizzeriapeperoncini
+        host: www.pizzeria-peperoncini.ch
+        port: 3000
+        cert: pizzeria-peperoncini.ch
+        # Apex -> www redirect and the legacy product-URL redirects; not worth templating for one site.
+        vhost_file: pizzeria-peperoncini.ch.conf
+      - name: staging
+        user: peperoncini-staging
+        db: peperoncini-staging
+        host: staging.pizzeria-peperoncini.ch
+        port: 3010
+        cert: staging.pizzeria-peperoncini.ch
+        basic_auth: false
+
+# Per-user nvm today; delivery-order-app #554 replaces it with a system-wide Node 22 from NodeSource.
+tenant_nvm_node_version: v20.19.5
+
+# Pre-deploy dumps in <home>/backups older than this many days are deleted by systemd-tmpfiles-clean (daily).
+# 0 = off. Today some are from 2026-02, so the first clean after turning this on deletes them.
+tenant_backups_max_age_days: 0
+
+# --- Backup (restic -> Infomaniak Swiss Backup cluster 04, rclone remote KuuakIncServerBackup) ----
+# Script, units and excludes are shipped as they are on the box. /etc/restic/env and rclone.conf are
+# templated from the vault and skipped while it has no values (see vault.yml.example).
+backup_swift_auth_url: https://swiss-backup04.infomaniak.com/identity/v3

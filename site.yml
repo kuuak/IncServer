@@ -1,0 +1,16 @@
+# Whole-server playbook. Safe default: with the flags in group_vars/all/vars.yml
+# left as shipped, this only re-asserts what is already on the box.
+#
+#   ansible-playbook site.yml --check --diff          # dry run, always do this first
+#   ansible-playbook site.yml --tags nginx            # one role
+- name: IncServer
+  hosts: incserver
+  roles:
+    - { role: base, tags: [base] }
+    - { role: firewall, tags: [firewall] }
+    - { role: docker, tags: [docker] }
+    - { role: nginx, tags: [nginx] }
+    - { role: netdata, tags: [netdata] }
+    - { role: mailpit, tags: [mailpit] }
+    - { role: tenant, tags: [tenant] }
+    - { role: backup, tags: [backup] }

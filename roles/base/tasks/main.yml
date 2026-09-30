@@ -1,0 +1,61 @@
+- name: Create swap file
+  ansible.builtin.command: "fallocate -l {{ swap_size_mb }}M /swapfile"
+  args: { creates: /swapfile }
+  when: swap_size_mb | int > 0
+  notify: Format and enable swap
+
+- name: Swap file permissions
+  ansible.builtin.file: { path: /swapfile, mode: "0600", owner: root, group: root }
+  when: swap_size_mb | int > 0
+  ignore_errors: "{{ ansible_check_mode }}"   # the file does not exist yet during a first dry run
+
+- name: Swap in fstab
+  ansible.posix.mount: { path: none, src: /swapfile, fstype: swap, opts: sw, state: present }
+  when: swap_size_mb | int > 0
+
+- name: Swappiness
+  ansible.posix.sysctl:
+    name: vm.swappiness
+    value: "{{ swap_swappiness }}"
+    sysctl_file: /etc/sysctl.d/99-swap.conf
+  when: swap_size_mb | int > 0
+
+- name: Create OOM drop-in directories
+  ansible.builtin.file: { path: "/etc/systemd/system/{{ item }}.service.d", state: directory, mode: "0755" }
+  loop: "{{ oom_protected_units }}"
+
+- name: OOM protection drop-ins
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item }}.service.d/oom.conf"
+    content: "[Service]\nOOMScoreAdjust=-900\n"
+    mode: "0644"
+  loop: "{{ oom_protected_units }}"
+  notify: Reload systemd
+  # Takes effect at each unit's next restart; never restart ssh/journald/postgres from here.
+
+- name: SSHD drop-in (PermitRootLogin no, X11Forwarding no)
+  ansible.builtin.copy:
+    src: sshd-10-incserver.conf
+    dest: /etc/ssh/sshd_config.d/10-incserver.conf
+    mode: "0644"
+    validate: "sshd -t -f %s"
+  notify: Reload ssh
+
+- name: Journald size cap
+  ansible.builtin.copy: { src: journald-size.conf, dest: /etc/systemd/journald.conf.d/size.conf, mode: "0644" }
+  # No handler: applies at journald's next restart. `systemctl restart systemd-journald` by hand if urgent.
+
+- name: Weekly reboot-if-required script
+  ansible.builtin.copy: { src: reboot-if-required, dest: /usr/local/sbin/reboot-if-required, mode: "0755" }
+
+- name: Weekly reboot-if-required units
+  ansible.builtin.copy: { src: "{{ item }}", dest: "/etc/systemd/system/{{ item }}", mode: "0644" }
+  loop: [reboot-if-required.service, reboot-if-required.timer]
+  notify: Reload systemd
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable reboot window timer
+  ansible.builtin.systemd: { name: reboot-if-required.timer, enabled: true, state: started }
+  ignore_errors: "{{ ansible_check_mode }}"   # the unit does not exist yet during a first dry run

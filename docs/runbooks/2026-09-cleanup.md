@@ -34,12 +34,19 @@ On the box, "before" copies live in `/root/cleanup-2026-09/` (0700, covered by r
 |---|---|
 | ~~Dual-stack web~~ done by hand 2026-09-30; the Ansible `nginx` role must keep the `[::]` listens (and should add a catch-all `default_server` returning 444, none exists today) | Ansible |
 | healthchecks.io: start / success / fail pings for `restic-backup`, `certbot`, `unattended-upgrades` (email only) | Needs the 3 ping URLs from the owner |
-| Deploy: per-Environment keys, secrets stay on the box, pinned actions + host key, `--chmod` instead of `--chown`; staging deploys fail until then | delivery-order-app #553 (owner, in progress) |
+| Deploy: per-Environment keys, secrets stay on the box, pinned actions + host key, `--chmod` instead of `--chown`; staging deploys fail until then | delivery-order-app #553: merged 2026-09-30 (PR #555) into `release/v1.4.0`; host side (per-Environment keys with `restrict`, drop `github-deploy`) is next |
 | Node 22 via NodeSource, drop per-user nvm | delivery-order-app #554 + Ansible |
 | Delete groups `peperoncini-www`, `peperoncini-webgrp` (`mailhog-www` done 2026-09-30) | After #553 lands |
 | Delete `/home/peperoncini.moved-2026-09` | After 2026-10-06 |
 | Prune pre-deploy dumps (`<env>/backups`, older than 14 days) | Ansible `tenant` role |
-| Bootstrap the Ansible repo against the cleaned box (`--check` = `changed=0`), then onboard Tomate through the `tenant` role | Next session |
+| ~~Bootstrap the Ansible repo~~ done 2026-09-30: full `--check --diff` reports `ok=43 changed=0 failed=0` (skips = vault-gated secrets and switches that ship off). Next: fill the vault (verify restic env / rclone.conf templates), then onboard Tomate through the `tenant` role | Ansible |
+| **Grafana Cloud token on disk**: the Alloy purge left `/etc/systemd/system/alloy.service.d/env.conf` with `GCLOUD_RW_API_KEY` (token `kuuakincserver-token`); it was printed into an agent session on 2026-09-30. Also the `alloy` user (in `adm`, `systemd-journal`) remains | Owner: revoke the token in Grafana Cloud; then `rm -r` the drop-in, `daemon-reload`, `userdel alloy` |
+| `DOCKER-USER` is **empty** (v4 + v6): the 1025 filter is not on the box; only the portal firewall limits Mailpit SMTP | Ansible `mailpit_smtp_filter_enabled` (unit re-applies it after reboots) |
+| ~~`/home/demokuuakch`: leftover home of the removed demo user, owned by `peperoncini-staging` (uid 1009 reused)~~ deleted by the owner 2026-09-30 | done |
+| Next.js listens on `*:3000` / `*:3010` (ufw + portal block them); bind to 127.0.0.1 | delivery-order-app PR #558 (`blitz start -H 127.0.0.1`, into `release/v1.4.0`); verify with `ss -tlnp` after the deploys |
+| nginx `ssl_protocols TLSv1.2 TLSv1.3` in `roles/nginx/files/nginx.conf` (2026-09-30; `--check` diff = that line). In practice TLS 1.1 was already refused (Ubuntu 24.04 OpenSSL seclevel), so no client impact. Applied 2026-09-30 22:21 by the owner (`ansible-playbook site.yml`, first real run of the repo, after restic snapshot `1b158039`): `changed=2` (file + reload); all four vhosts answer on v4 + v6, TLS 1.1 refused, 1.2 ok | done |
+| `server_tokens` on; no Docker `daemon.json` (unbounded json-file logs); Mailpit image unpinned | Ansible switches / `nginx.conf` edit |
+| Staging `authorized_keys` is 0644 (prod 0600): sshd accepts it, the `tenant` role will own it with #553 | After #553 |
 | App noise: `[theme] Could not read theme file` logged on every render when `public/theme.json` is absent (317k lines in the old PM2 log) | delivery-order-app, small issue |
 
 ## Step 8 rollback

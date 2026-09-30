@@ -1,0 +1,22 @@
+services:
+  #  mailhog:
+  #  image: mailhog/mailhog:latest
+  #  container_name: mailhog
+  #  ports:
+  #    - "8025:8025"  # Web UI
+  #    - "1025:1025"  # SMTP
+  #  restart: unless-stopped
+  mailpit:
+    image: {{ mailpit_image }}
+    container_name: mailpit
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+    ports:
+      - 127.0.0.1:8025:8025   # UI only via nginx (mailhog.kuuak.ch, basic auth)
+      - 0.0.0.0:1025:1025     # IPv4 only; portal firewall allows IncServer + KuuakServer
+    environment:
+      MP_MAX_MESSAGES: 5000
+      MP_DATABASE: /data/mailpit.db
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1

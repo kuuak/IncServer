@@ -1,0 +1,32 @@
+# Copy to vault.yml, fill from the password manager, then:
+#   ansible-vault encrypt group_vars/all/vault.yml
+# Only the ENCRYPTED vault.yml is committed. Tasks that need a value skip
+# themselves while it is undefined, so the playbook runs without this file.
+#
+# The templates for /etc/restic/env and /root/.config/rclone/rclone.conf were written without reading
+# those files (they hold secrets). After filling this vault, run
+#   ansible-playbook site.yml --check --diff --tags backup
+# and it must report ok (not changed) for both before the first real run. no_log hides the diff; if it
+# says changed, compare the files on the box by hand and adjust roles/backup/templates.
+
+# Backup
+vault_restic_repository: ""        # exactly the value of RESTIC_REPOSITORY in /etc/restic/env (not secret, but unknown to the repo)
+vault_restic_password: ""          # rotated 2026-09-29; lose it and the backups are unreadable
+vault_swissbackup_user: ""         # rclone.conf [KuuakIncServerBackup] user
+vault_swissbackup_password: ""     # rclone.conf key
+vault_swissbackup_tenant: ""       # rclone.conf tenant
+
+# healthchecks.io ping URLs (handoff step 4), email-only checks
+vault_healthcheck_backup_url: ""
+vault_healthcheck_certbot_url: ""
+vault_healthcheck_unattended_upgrades_url: ""
+
+# Basic-auth files: the whole htpasswd content (user:hash lines), never a plain password
+vault_mailpit_htpasswd: ""
+vault_netdata_htpasswd: ""
+
+# Tenant DB passwords, keyed by Postgres role. Used only when the role has to be CREATED (a new
+# Environment); existing roles' passwords are never touched by a run. Also what the Environment's .env needs.
+vault_tenant_db_passwords: {}
+#   tomate: "..."
+#   tomate-staging: "..."

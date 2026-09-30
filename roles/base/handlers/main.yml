@@ -1,0 +1,9 @@
+- name: Format and enable swap
+  ansible.builtin.shell: mkswap /swapfile && swapon /swapfile
+  changed_when: true
+
+- name: Reload systemd
+  ansible.builtin.systemd: { daemon_reload: true }
+
+- name: Reload ssh
+  ansible.builtin.service: { name: ssh, state: reloaded }
