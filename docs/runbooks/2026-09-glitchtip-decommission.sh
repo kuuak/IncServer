@@ -60,5 +60,5 @@ step "verify"
 curl -s -o /dev/null -w 'mailpit UI via nginx: %{http_code} (401 expected)\n' --resolve mailhog.kuuak.ch:443:127.0.0.1 https://mailhog.kuuak.ch/
 curl -s -o /dev/null -w 'www: %{http_code}\n' --resolve www.pizzeria-peperoncini.ch:443:127.0.0.1 https://www.pizzeria-peperoncini.ch/
 systemctl is-active nginx netdata docker
-id glitchtip 2>&1 | tail -1; id mailhog 2>&1 | tail -1
+id glitchtip 2>&1 || true; id mailhog 2>&1 || true   # `id` fails for a deleted user; under pipefail that ended the 2026-09-30 run here
 step "done"
