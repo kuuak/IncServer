@@ -1,0 +1,27 @@
+# One system-wide Node 22 LTS from NodeSource for every Tenant Environment (delivery-order-app #554), with PM2
+# installed for it. Replaces per-user nvm: an Environment moves over when its `nvm_node_version` is dropped (see
+# the `tenant` role). Installing this changes nothing that runs; no Environment uses it until its PM2 unit does.
+- name: NodeSource signing key (NSolid, 6F71 F525 2828 41EE DAF8 51B4 2F59 B5F9 9B1B E0B4)
+  ansible.builtin.copy: { src: nodesource.asc, dest: /etc/apt/keyrings/nodesource.asc, mode: "0644" }
+
+- name: NodeSource apt source (node_22.x)
+  ansible.builtin.copy: { src: nodesource.sources, dest: /etc/apt/sources.list.d/nodesource.sources, mode: "0644" }
+  register: nodejs_apt_source
+
+- name: Pin nodejs to NodeSource
+  ansible.builtin.copy: { src: nodesource.pref, dest: /etc/apt/preferences.d/nodesource, mode: "0644" }
+
+- name: NodeSource in unattended-upgrades' allowed origins
+  ansible.builtin.copy:
+    src: 51unattended-upgrades-nodesource
+    dest: /etc/apt/apt.conf.d/51unattended-upgrades-nodesource
+    mode: "0644"
+
+# Versioned, so a cache that never saw NodeSource fails here instead of installing Ubuntu's 18.x.
+- name: Node.js 22
+  ansible.builtin.apt: { name: "nodejs=22.*", state: present, update_cache: "{{ nodejs_apt_source is changed }}" }
+  ignore_errors: "{{ ansible_check_mode }}"   # the NodeSource source is not there yet during a first dry run
+
+- name: PM2 for the system Node
+  community.general.npm: { name: pm2, version: "{{ nodejs_pm2_version }}", global: true }
+  ignore_errors: "{{ ansible_check_mode }}"   # npm does not exist yet during a first dry run

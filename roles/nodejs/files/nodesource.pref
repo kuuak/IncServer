@@ -1,0 +1,4 @@
+# Managed by Ansible (IncServer repo, roles/nodejs). nodejs only from NodeSource, never Ubuntu's (18.x in noble).
+Package: nodejs
+Pin: origin deb.nodesource.com
+Pin-Priority: 600

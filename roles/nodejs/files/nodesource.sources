@@ -1,0 +1,7 @@
+# Managed by Ansible (IncServer repo, roles/nodejs). Node 22 LTS for every Tenant Environment (delivery-order-app #554).
+Types: deb
+URIs: https://deb.nodesource.com/node_22.x
+Suites: nodistro
+Components: main
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/nodesource.asc

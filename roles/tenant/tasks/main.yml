@@ -56,7 +56,29 @@
   loop: "{{ tenants | subelements('environments') }}"
   loop_control: { label: "{{ item.1.user }}" }
 
-# --- PM2 --------------------------------------------------------------------------
+# --- Node + PM2 ---------------------------------------------------------------------
+# An Environment without `nvm_node_version` runs on the system Node 22 (role `nodejs`).
+- name: System Node and PM2 present (role nodejs) before an Environment switches to them
+  ansible.builtin.stat: { path: /usr/lib/node_modules/pm2/bin/pm2 }
+  register: tenant_system_pm2
+  when: tenants | map(attribute='environments') | flatten | rejectattr('nvm_node_version', 'defined') | list | length > 0
+
+- name: Refuse to point a PM2 unit at a missing system PM2
+  ansible.builtin.assert:
+    that: tenant_system_pm2.stat.exists
+    fail_msg: Run the nodejs role first (ansible-playbook site.yml --tags nodejs)
+  when: tenant_system_pm2.stat is defined and not ansible_check_mode
+
+# deploy-server.sh and refresh-staging.sh source ~/.nvm/nvm.sh when present, so a leftover nvm silently wins
+# over the system Node. Renamed, not deleted, so a rollback is a `mv` back (delete in housekeeping).
+- name: Retire per-user nvm on system-Node Environments
+  ansible.builtin.command:
+    argv: [mv, -T, "/var/www/{{ item.0.domain }}/{{ item.1.name }}/.nvm", "/var/www/{{ item.0.domain }}/{{ item.1.name }}/.nvm.retired"]
+    removes: "/var/www/{{ item.0.domain }}/{{ item.1.name }}/.nvm"
+  when: item.1.nvm_node_version is not defined
+  loop: "{{ tenants | subelements('environments') }}"
+  loop_control: { label: "{{ item.1.user }}" }
+
 - name: PM2 unit
   ansible.builtin.template:
     src: pm2.service.j2

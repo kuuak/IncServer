@@ -12,6 +12,7 @@
     - { role: nginx, tags: [nginx] }
     - { role: netdata, tags: [netdata] }
     - { role: mailpit, tags: [mailpit] }
+    - { role: nodejs, tags: [nodejs] }
     - { role: tenant, tags: [tenant] }
     - { role: backup, tags: [backup] }
     - { role: healthchecks, tags: [healthchecks] }

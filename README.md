@@ -10,6 +10,7 @@ Vocabulary (Tenant, Environment, ...): [CONTEXT.md](CONTEXT.md).
 | Service | Where | Public via | Role |
 |---|---|---|---|
 | Tenant Environments (Next.js under PM2, one Unix user each) | `/var/www/<domain>/<env>`, `pm2-<user>.service` | tenant domains → port map | `tenant` (+ `nginx` port map) |
+| Node 22 + PM2 for the Environments (production still on per-user nvm Node 20 until delivery-order-app v1.4.0) | host (NodeSource apt) | – | `nodejs` |
 | PostgreSQL 16 (one role + DB per Environment), Redis | host | localhost only | `tenant` (roles/DBs) |
 | nginx + certbot | host | 80, 443 (v4 + v6) | `nginx` |
 | Mailpit (catches all app mail, ADR-0003) | compose, `/var/www/mailhog.kuuak.ch` | UI mailhog.kuuak.ch (basic auth); SMTP 1025 v4 | `mailpit` |
@@ -57,8 +58,8 @@ with a filled vault**: the restic env and rclone.conf templates were written wit
 
 ## Not captured yet
 
-- Packages (beyond restic/rclone), certbot certificates, the apt sources (Docker, Netdata), unattended-upgrades
-  config (Node 22 from NodeSource joins its allowed origins with delivery-order-app #554)
+- Packages (beyond restic/rclone/nodejs), certbot certificates, the apt sources (Docker, Netdata), unattended-upgrades
+  config (only the NodeSource origin drop-in is managed, by `nodejs`)
 - Tenant `authorized_keys`: per-Environment deploy keys arrive with delivery-order-app #553
 - PostgreSQL / Redis config (both stock apart from what the packages ship), the Tenants' app files and `.env`
 
@@ -69,10 +70,13 @@ with a filled vault**: the restic env and rclone.conf templates were written wit
 - No role restarts a Tenant's PM2, dockerd, ssh, journald or Postgres. Those take the pizzerias down or restart every container: do them by hand, outside opening hours.
 - The box has no `python3-psycopg2`, so the `tenant` role talks to Postgres through `psql`: in `--check` a drifted DB shows as a changed "Postgres drift" task; an owner mismatch fails the run on purpose (fix it with a REASSIGN, as in step 8 of the cleanup runbook).
 - Docker-published ports bypass ufw. Mailpit's SMTP (1025, v4) is only limited by the portal firewall until `mailpit_smtp_filter_enabled` is on.
-- `sudo -iu <user> bash -lc '…'` does not load nvm; use `sudo -iu <user> bash -c 'source ~/.nvm/nvm.sh; …'`.
+- An Environment with `nvm_node_version` still runs per-user nvm: `sudo -iu <user> bash -lc '…'` does not load it,
+  use `sudo -iu <user> bash -c 'source ~/.nvm/nvm.sh; …'`. On system Node, `~/.nvm` must stay absent: `deploy-server.sh`
+  sources it when present, and the PM2 dumps keep its bin dir first in PATH.
 - After a reboot, production Next.js needs ~60 s of cold start before the first 200.
 - Never `source` or print a secrets file; inspect shapes (length, prefix) only.
 
 ## Runbooks
 
 - [2026-09 cleanup and security pass](docs/runbooks/2026-09-cleanup.md)
+- [2026-10 Node 22 switch, staging then production](docs/runbooks/2026-10-node22.md)

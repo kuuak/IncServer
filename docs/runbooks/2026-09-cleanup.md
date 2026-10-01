@@ -35,7 +35,7 @@ On the box, "before" copies live in `/root/cleanup-2026-09/` (0700, covered by r
 | ~~Dual-stack web~~ done by hand 2026-09-30; the Ansible `nginx` role must keep the `[::]` listens (and should add a catch-all `default_server` returning 444, none exists today) | Ansible |
 | ~~healthchecks.io: start / success / fail pings for `restic-backup`, `certbot`, `unattended-upgrades` (email only)~~ done 2026-09-30: role `healthchecks` applied by the owner (URLs in the vault); certbot run by hand at 22:40, start + success pings seen on healthchecks.io. Unattended-upgrades counts as ok only if `upgrade-stamp` was touched (`apt.systemd.daily` exits 0 on failure), so a manual same-day rerun reports a false fail. Failure path tested locally only | done |
 | ~~Deploy: per-Environment keys, secrets stay on the box, pinned actions + host key, `--chmod` instead of `--chown`~~ #553 merged (PR #555); host side done 2026-10-01: one deploy key per Environment (GitHub Environment secret `SSH_KEY`, public half `restrict`ed), shared `github-deploy` key and repo-level `SSH_KEY` removed, Environment vars set (`SSH_KNOWN_HOSTS` pinned to `SHA256:Rb8qFUup…jw8`), `kuuak-demo` Environment deleted. `authorized_keys` = admin key + deploy key, owned by the `tenant` role (exclusive). **First deploy under the new pipeline still to run** (needs Node 22, step 7) | after step 7 |
-| Node 22 via NodeSource, drop per-user nvm | delivery-order-app #554 + Ansible |
+| Node 22 via NodeSource, drop per-user nvm: role `nodejs` + per-Environment `nvm_node_version` written 2026-10-01; staging first on `release/v1.4.0`, production stays on nvm Node 20 until v1.4.0 is merged into `main` ([runbook](2026-10-node22.md)) | phase A steps 1–3 done 2026-10-01 (staging on `/usr/bin/node`); staging deploy next; phase B after the merge |
 | ~~Delete groups `peperoncini-www`, `peperoncini-webgrp`, `mailhog-www`~~ done 2026-10-01 by the owner (the two `.env` backups in `/root/cleanup-2026-09/peperoncini/` re-grouped to root first) | done |
 | Delete `/home/peperoncini.moved-2026-09` | After 2026-10-06 |
 | Prune pre-deploy dumps (`<env>/backups`, older than 14 days) | Ansible `tenant` role |
@@ -47,6 +47,7 @@ On the box, "before" copies live in `/root/cleanup-2026-09/` (0700, covered by r
 | nginx `ssl_protocols TLSv1.2 TLSv1.3` in `roles/nginx/files/nginx.conf` (2026-09-30; `--check` diff = that line). In practice TLS 1.1 was already refused (Ubuntu 24.04 OpenSSL seclevel), so no client impact. Applied 2026-09-30 22:21 by the owner (`ansible-playbook site.yml`, first real run of the repo, after restic snapshot `1b158039`): `changed=2` (file + reload); all four vhosts answer on v4 + v6, TLS 1.1 refused, 1.2 ok | done |
 | `server_tokens` on; no Docker `daemon.json` (unbounded json-file logs); Mailpit image unpinned | Ansible switches / `nginx.conf` edit |
 | Staging `authorized_keys` is 0644 (prod 0600): sshd accepts it; content is now owned by the `tenant` role, the mode is not | `chmod 600` by hand, or a mode task in the role |
+| No scheduled app jobs: nothing calls `/api/cron/*` (payment check, token purge) on any Environment | handoff step 8, `tenant` role |
 | App noise: `[theme] Could not read theme file` logged on every render when `public/theme.json` is absent (317k lines in the old PM2 log) | delivery-order-app, small issue |
 
 ## Step 8 rollback

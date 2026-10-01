@@ -1,0 +1,5 @@
+// Managed by Ansible (IncServer repo, roles/nodejs). Node 22.x patch releases install unattended; the repo only
+// ships 22.x, so no major jump. Running PM2 processes keep the old binary until their next restart.
+Unattended-Upgrade::Origins-Pattern {
+	"site=deb.nodesource.com";
+};
