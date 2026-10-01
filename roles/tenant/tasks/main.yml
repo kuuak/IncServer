@@ -1,8 +1,8 @@
 # One pass per Tenant Environment (see CONTEXT.md and the `tenants` var). Template for new Environments:
 # docs/runbooks/2026-09-step8-staging-identity.sh is how Peperoncini's were made by hand.
 #
-# Not managed (yet): the Environment's app files and .env (deploys own them), TLS certificates (certbot),
-# authorized_keys (per-Environment deploy keys arrive with delivery-order-app #553, then they move here).
+# Not managed (yet): the Environment's app files and .env (deploys own them), TLS certificates (certbot).
+# Deploy keys: one per Environment (`deploy_key`), GitHub Environment secret SSH_KEY holds the private half.
 
 - name: Tenant domain directory
   ansible.builtin.file: { path: "/var/www/{{ item.domain }}", state: directory, owner: root, group: root, mode: "0755" }
@@ -45,6 +45,16 @@
 - name: No dump pruning
   ansible.builtin.file: { path: /etc/tmpfiles.d/tenant-backups.conf, state: absent }
   when: tenant_backups_max_age_days | int == 0
+
+- name: Admin keys + deploy key (`restrict`)
+  ansible.posix.authorized_key:
+    user: "{{ item.1.user }}"
+    key: "{{ (tenant_admin_keys + ['restrict ' ~ item.1.deploy_key]) | join('\n') }}"
+    exclusive: "{{ tenant_authorized_keys_exclusive }}"
+    manage_dir: false          # .ssh is the task above
+  when: item.1.deploy_key is defined
+  loop: "{{ tenants | subelements('environments') }}"
+  loop_control: { label: "{{ item.1.user }}" }
 
 # --- PM2 --------------------------------------------------------------------------
 - name: PM2 unit

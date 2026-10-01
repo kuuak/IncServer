@@ -44,6 +44,8 @@ mailpit_smtp_allowed_v4:
 #   port      where its Next.js listens
 #   vhost_file  optional: ship roles/tenant/files/vhosts/<file> verbatim instead of the template
 #   basic_auth  template only; true = auth_basic with /var/www/<domain>/.htpasswd
+#   deploy_key  public half of the Environment's deploy key (private half = GitHub Environment secret SSH_KEY),
+#               installed with `restrict` (no shell tricks: no pty, forwarding, agent)
 tenants:
   - name: peperoncini
     label: Pizzeria Peperoncini
@@ -57,6 +59,7 @@ tenants:
         cert: pizzeria-peperoncini.ch
         # Apex -> www redirect and the legacy product-URL redirects; not worth templating for one site.
         vhost_file: pizzeria-peperoncini.ch.conf
+        deploy_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBZfhEGuNjIkauYvu+VEvceYe7RXDt2i539VtZ/inVjS peperoncini-production-deploy
       - name: staging
         user: peperoncini-staging
         db: peperoncini-staging
@@ -64,6 +67,14 @@ tenants:
         port: 3010
         cert: staging.pizzeria-peperoncini.ch
         basic_auth: false
+        deploy_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII6lLdsyTxkpfUYI5K1HAZMZkuC59ZIHvN0Qd1q4kzY1 peperoncini-staging-deploy
+
+# Each Environment's authorized_keys = these admin keys (unrestricted, for `ssh <user>@IncServer` from the admin
+# Mac; the same key already reaches root through `ubuntu`, so this grants nothing new) + its `restrict`ed
+# deploy key. true = anything else in the file is removed.
+tenant_admin_keys:
+  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFoNE5r0ZbY5MzrV08Fc/ULtxkWh0d7vSjPvPw34FQG8 felipe.paulmartins@outlook.com
+tenant_authorized_keys_exclusive: true
 
 # Per-user nvm today; delivery-order-app #554 replaces it with a system-wide Node 22 from NodeSource.
 tenant_nvm_node_version: v20.19.5
