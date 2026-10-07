@@ -62,8 +62,6 @@ tenants:
         cert: pizzeria-peperoncini.ch
         # Apex -> www redirect and the legacy product-URL redirects; not worth templating for one site.
         vhost_file: pizzeria-peperoncini.ch.conf
-        # Stays on Node 20 until release/v1.4.0 is merged into main and deployed here (handoff step 7).
-        nvm_node_version: v20.19.5
         deploy_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBZfhEGuNjIkauYvu+VEvceYe7RXDt2i539VtZ/inVjS peperoncini-production-deploy
       - name: staging
         user: peperoncini-staging
