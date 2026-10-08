@@ -49,6 +49,7 @@ mailpit_smtp_allowed_v4:
 #   nvm_node_version  legacy: the Environment still runs on its per-user nvm Node (PM2 unit points there). Without
 #               it, the Environment runs on the system Node 22 (role `nodejs`) and its ~/.nvm is renamed .nvm.retired.
 #               Drop it only when the app it runs needs Node 22 (delivery-order-app >= v1.4.0, #554).
+#   app_jobs    optional: names from `tenant_app_jobs` this Environment runs (default: all of them)
 tenants:
   - name: peperoncini
     label: Pizzeria Peperoncini
@@ -82,6 +83,16 @@ tenant_authorized_keys_exclusive: true
 # System Node 22 comes from NodeSource (role `nodejs`, delivery-order-app #554); PM2 matches the per-user installs.
 nodejs_pm2_version: 6.0.11
 
+# Scheduled app jobs (handoff step 8): delivery-order-app's POST /api/cron/<name>, on every Environment, as its user,
+# against http://127.0.0.1:<port> with `Authorization: Bearer $CRON_SECRET` read from the release's env files.
+# Units app-<user>-<name>.{service,timer}; `journalctl -u app-<user>-<name>`, `systemctl list-timers 'app-*'`.
+#   check-pending-payments  re-validates card orders still `pending` with Wallee / SumUp (a missed webhook); no-op
+#                           when none is pending. Schedule from delivery-order-app docs/payment-validation-cron.md.
+#   purge-expired-tokens    data retention: deletes expired Tokens (abandoned signups' personal data). App README slot.
+tenant_app_jobs:
+  - { name: check-pending-payments, schedule: "*-*-* *:00/10:00" }
+  - { name: purge-expired-tokens, schedule: "*-*-* 03:15:00" }
+
 # Pre-deploy dumps in <home>/backups older than this many days are deleted by systemd-tmpfiles-clean (daily).
 # 0 = off. Today some are from 2026-02, so the first clean after turning this on deletes them.
 tenant_backups_max_age_days: 0
@@ -104,3 +115,11 @@ healthchecks_jobs:
     unit: apt-daily-upgrade.service
     url: "{{ vault_healthcheck_unattended_upgrades_url | default('') }}"
     success_stamp: /var/lib/apt/periodic/upgrade-stamp
+  # Production app jobs (staging: journal only). healthchecks.io: check-pending-payments cron "*/10 * * * *", grace
+  # 20 min; purge-expired-tokens cron "15 3 * * *", grace 2 h.
+  - key: peperoncini-check-pending-payments
+    unit: app-peperoncini-check-pending-payments.service
+    url: "{{ vault_healthcheck_app_job_urls['peperoncini-check-pending-payments'] | default('') }}"
+  - key: peperoncini-purge-expired-tokens
+    unit: app-peperoncini-purge-expired-tokens.service
+    url: "{{ vault_healthcheck_app_job_urls['peperoncini-purge-expired-tokens'] | default('') }}"

@@ -1,0 +1,19 @@
+#!/bin/bash
+# Managed by Ansible (IncServer repo, roles/tenant). Runs one delivery-order-app scheduled job (POST /api/cron/<job>)
+# for one Tenant Environment, from app-<user>-<job>.service: as the Environment's user, in its current/ release.
+#   tenant-app-job <port> <job>
+# CRON_SECRET is read at run time through the app's own env loader (scripts/deploy-env.mjs, same files and order
+# as `blitz start`), so it has one home: the release's .env.* files. It goes to curl on stdin, never in argv.
+# The endpoint's JSON answer lands in the journal; --fail turns a 401/500 into a failed unit.
+set -euo pipefail
+port=$1 job=$2
+
+secret=$(node scripts/deploy-env.mjs get CRON_SECRET)
+if [ -z "$secret" ]; then
+	echo "CRON_SECRET is not set in $PWD/.env.*" >&2
+	exit 1
+fi
+
+printf 'Authorization: Bearer %s\n' "$secret" |
+	curl --fail-with-body -sS -m 300 -X POST -H @- "http://127.0.0.1:$port/api/cron/$job"
+echo

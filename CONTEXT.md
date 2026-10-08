@@ -18,3 +18,7 @@ A Tenant whose production Environment serves real orders from this host. Current
 **Decommissioned Tenant**:
 A former Tenant that no longer trades; only a final backup of its data is kept, and nothing of it runs or remains reachable on the host. Currently Dolce Vita (out of business since 2026-05).
 _Avoid_: Paused, inactive
+
+**App job**:
+A scheduled call the host makes to one Environment's app (`POST /api/cron/<job>` with its `CRON_SECRET`), such as the payment check or the expired-token purge. Every Environment runs its own, as its own user.
+_Avoid_: Cron, cronjob

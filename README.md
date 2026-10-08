@@ -10,7 +10,8 @@ Vocabulary (Tenant, Environment, ...): [CONTEXT.md](CONTEXT.md).
 | Service | Where | Public via | Role |
 |---|---|---|---|
 | Tenant Environments (Next.js under PM2, one Unix user each) | `/var/www/<domain>/<env>`, `pm2-<user>.service` | tenant domains → port map | `tenant` (+ `nginx` port map) |
-| Node 22 + PM2 for the Environments (production still on per-user nvm Node 20 until delivery-order-app v1.4.0) | host (NodeSource apt) | – | `nodejs` |
+| Node 22 + PM2 for the Environments | host (NodeSource apt) | – | `nodejs` |
+| App jobs (`POST /api/cron/*`: payment check every 10 min, token purge daily 03:15) per Environment | `app-<user>-<job>.timer` | – (localhost) | `tenant` |
 | PostgreSQL 16 (one role + DB per Environment), Redis | host | localhost only | `tenant` (roles/DBs) |
 | nginx + certbot | host | 80, 443 (v4 + v6) | `nginx` |
 | Mailpit (catches all app mail, ADR-0003) | compose, `/var/www/mailhog.kuuak.ch` | UI mailhog.kuuak.ch (basic auth); SMTP 1025 v4 | `mailpit` |
@@ -45,6 +46,8 @@ Every Environment is one entry under `tenants:` in `group_vars/all/vars.yml`. On
    started), Postgres role + DB, port-map line, vhost.
 3. `certbot certonly --nginx -d <host>` (certificates are not managed here), then `nginx -t && systemctl reload nginx`.
 4. First deploy from the app repo; restore data if it moves from another host.
+5. App jobs run from the first deploy on (skipped until `current/` exists); the release's env files need `CRON_SECRET`.
+   For production, add two healthchecks.io checks (see `healthchecks_jobs`) and their URLs to the vault.
 
 The production vhost of Peperoncini is shipped verbatim (`roles/tenant/files/vhosts/`, legacy redirects);
 new Environments use `roles/tenant/templates/vhost.conf.j2`.
