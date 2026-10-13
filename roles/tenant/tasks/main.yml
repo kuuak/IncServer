@@ -149,6 +149,54 @@
   loop: "{{ tenant_pg.results }}"
   loop_control: { label: "{{ item.item.1.db }}" }
 
+# --- Scheduled app jobs (POST /api/cron/<job>, handoff step 8) --------------------------
+# Every `tenant_app_jobs` entry on every Environment, unless the Environment lists its own `app_jobs`. One service +
+# timer each, app-<user>-<job>; the runner reads CRON_SECRET from the release's env files at run time.
+- name: App job runner
+  ansible.builtin.copy: { src: tenant-app-job, dest: /usr/local/sbin/tenant-app-job, mode: "0755" }
+
+- name: App job units
+  ansible.builtin.template:
+    src: "app-job.{{ item.2 }}.j2"
+    dest: "/etc/systemd/system/app-{{ item.0.1.user }}-{{ item.1.name }}.{{ item.2 }}"
+    mode: "0644"
+  when: item.1.name in (item.0.1.app_jobs | default(tenant_app_jobs | map(attribute='name')))
+  loop: "{{ tenants | subelements('environments') | product(tenant_app_jobs) | product(['service', 'timer'])
+            | map('flatten', levels=1) | list }}"
+  loop_control: { label: "app-{{ item.0.1.user }}-{{ item.1.name }}.{{ item.2 }}" }
+  notify: Reload systemd
+
+- name: App job timers an Environment no longer runs
+  ansible.builtin.stat: { path: "/etc/systemd/system/app-{{ item.0.1.user }}-{{ item.1.name }}.timer" }
+  register: tenant_dropped_jobs
+  when: item.1.name not in (item.0.1.app_jobs | default(tenant_app_jobs | map(attribute='name')))
+  loop: "{{ tenants | subelements('environments') | product(tenant_app_jobs) | list }}"
+  loop_control: { label: "app-{{ item.0.1.user }}-{{ item.1.name }}" }
+
+- name: Stop them
+  ansible.builtin.systemd: { name: "{{ item.stat.path | basename }}", enabled: false, state: stopped }
+  when: item.stat.exists | default(false)
+  loop: "{{ tenant_dropped_jobs.results }}"
+  loop_control: { label: "{{ item.stat.path | default('-') | basename }}" }
+
+- name: Remove their units
+  ansible.builtin.file: { path: "/etc/systemd/system/app-{{ item.0.1.user }}-{{ item.1.name }}.{{ item.2 }}", state: absent }
+  when: item.1.name not in (item.0.1.app_jobs | default(tenant_app_jobs | map(attribute='name')))
+  loop: "{{ tenants | subelements('environments') | product(tenant_app_jobs) | product(['service', 'timer'])
+            | map('flatten', levels=1) | list }}"
+  loop_control: { label: "app-{{ item.0.1.user }}-{{ item.1.name }}.{{ item.2 }}" }
+  notify: Reload systemd
+
+- name: Flush handlers (app jobs)
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start app job timers
+  ansible.builtin.systemd: { name: "app-{{ item.0.1.user }}-{{ item.1.name }}.timer", enabled: true, state: started }
+  when: item.1.name in (item.0.1.app_jobs | default(tenant_app_jobs | map(attribute='name')))
+  loop: "{{ tenants | subelements('environments') | product(tenant_app_jobs) | list }}"
+  loop_control: { label: "app-{{ item.0.1.user }}-{{ item.1.name }}.timer" }
+  ignore_errors: "{{ ansible_check_mode }}"   # the units do not exist yet during a first dry run
+
 # --- nginx --------------------------------------------------------------------------
 - name: Vhost from the template
   ansible.builtin.template:

@@ -1,0 +1,11 @@
+{% set t, e, job = item.0.0, item.0.1, item.1 %}
+# Managed by Ansible (IncServer repo, roles/tenant).
+[Unit]
+Description={{ t.label }} {{ e.name }}: {{ job.name }} ({{ job.schedule }})
+
+[Timer]
+OnCalendar={{ job.schedule }} Europe/Zurich
+Persistent=true
+
+[Install]
+WantedBy=timers.target

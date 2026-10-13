@@ -1,0 +1,20 @@
+#!/bin/bash
+# Managed by Ansible (IncServer repo, roles/tenant). Runs one delivery-order-app scheduled job (POST /api/cron/<job>)
+# for one Tenant Environment, from app-<user>-<job>.service: as the Environment's user, in its current/ release.
+#   tenant-app-job <port> <job>
+# CRON_SECRET is read at run time through the app's own env loader (scripts/deploy-env.mjs, same files and order
+# as `blitz start`), so it has one home: the release's .env.* files. `check` first, as the deploy does: `get` alone
+# falls back to the public placeholder in the checked-in .env. The secret goes to curl on stdin, never in argv.
+# The endpoint's JSON answer lands in the journal; --fail-with-body turns a 401/500 into a failed unit. The retries
+# (connection refused, 5xx) ride out a PM2 restart and the ~60 s cold start after a reboot, when Persistent= catches
+# up on the run the reboot missed; both endpoints are safe to call twice.
+set -euo pipefail
+port=$1 job=$2
+
+node scripts/deploy-env.mjs check CRON_SECRET >&2
+secret=$(node scripts/deploy-env.mjs get CRON_SECRET)
+
+printf 'Authorization: Bearer %s\n' "$secret" |
+	curl --fail-with-body -sS -m 300 --retry 6 --retry-delay 15 --retry-connrefused -X POST -H @- \
+		"http://127.0.0.1:$port/api/cron/$job"
+echo

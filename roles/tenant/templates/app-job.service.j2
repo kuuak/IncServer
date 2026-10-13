@@ -1,0 +1,18 @@
+{% set t, e, job = item.0.0, item.0.1, item.1 %}
+{% set home = '/var/www/' ~ t.domain ~ '/' ~ e.name %}
+# Managed by Ansible (IncServer repo, roles/tenant). Scheduled app job, run by app-{{ e.user }}-{{ job.name }}.timer.
+[Unit]
+Description={{ t.label }} {{ e.name }}: POST /api/cron/{{ job.name }}
+After=pm2-{{ e.user }}.service
+# No release yet (new Environment before its first deploy): skipped, not failed.
+ConditionPathExists={{ home }}/current/scripts/deploy-env.mjs
+
+[Service]
+Type=oneshot
+User={{ e.user }}
+WorkingDirectory={{ home }}/current
+Environment=NODE_ENV=production
+ExecStart=/usr/local/sbin/tenant-app-job {{ e.port }} {{ job.name }}
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
