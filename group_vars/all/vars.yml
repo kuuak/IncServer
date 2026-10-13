@@ -89,6 +89,8 @@ nodejs_pm2_version: 6.0.11
 #   check-pending-payments  re-validates card orders still `pending` with Wallee / SumUp (a missed webhook); no-op
 #                           when none is pending. Schedule from delivery-order-app docs/payment-validation-cron.md.
 #   purge-expired-tokens    data retention: deletes expired Tokens (abandoned signups' personal data). App README slot.
+# Narrowing an Environment's `app_jobs` stops and removes the dropped units. Deleting a job from this list (or an
+# Environment from `tenants`) does not: narrow `app_jobs` first and apply, and drop its `healthchecks_jobs` entry.
 tenant_app_jobs:
   - { name: check-pending-payments, schedule: "*-*-* *:00/10:00" }
   - { name: purge-expired-tokens, schedule: "*-*-* 03:15:00" }

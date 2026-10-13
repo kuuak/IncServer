@@ -18,7 +18,7 @@ Vocabulary (Tenant, Environment, ...): [CONTEXT.md](CONTEXT.md).
 | Netdata | host (apt repo) | netdata.kuuak.ch (basic auth) | `netdata` |
 | restic → Swiss Backup cluster 04, nightly 00:00 | host (systemd) | – | `backup` |
 | Weekly reboot window, Tue 04:30, only if required | host (systemd) | – | `base` |
-| healthchecks.io pings (email) for restic-backup, certbot, unattended-upgrades | systemd drop-ins + `/usr/local/sbin/hc-ping` | – | `healthchecks` (wired once the URLs are in the vault) |
+| healthchecks.io pings (email) for restic-backup, certbot, unattended-upgrades, production app jobs | systemd drop-ins + `/usr/local/sbin/hc-ping` | – | `healthchecks` (wired once the URLs are in the vault) |
 
 ## Usage
 
