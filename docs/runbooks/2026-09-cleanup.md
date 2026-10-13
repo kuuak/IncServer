@@ -47,7 +47,7 @@ On the box, "before" copies live in `/root/cleanup-2026-09/` (0700, covered by r
 | nginx `ssl_protocols TLSv1.2 TLSv1.3` in `roles/nginx/files/nginx.conf` (2026-09-30; `--check` diff = that line). In practice TLS 1.1 was already refused (Ubuntu 24.04 OpenSSL seclevel), so no client impact. Applied 2026-09-30 22:21 by the owner (`ansible-playbook site.yml`, first real run of the repo, after restic snapshot `1b158039`): `changed=2` (file + reload); all four vhosts answer on v4 + v6, TLS 1.1 refused, 1.2 ok | done |
 | `server_tokens` on; no Docker `daemon.json` (unbounded json-file logs); Mailpit image unpinned | Ansible switches / `nginx.conf` edit |
 | Staging `authorized_keys` is 0644 (prod 0600): sshd accepts it; content is now owned by the `tenant` role, the mode is not | `chmod 600` by hand, or a mode task in the role |
-| No scheduled app jobs: nothing calls `/api/cron/*` (payment check, token purge) on any Environment | written 2026-10-08 (`tenant_app_jobs`, handoff step 8), to apply |
+| No scheduled app jobs: nothing calls `/api/cron/*` (payment check, token purge) on any Environment | applied 2026-10-13 (`tenant_app_jobs`, handoff step 8); production pings wait for the healthchecks.io URLs |
 | App noise: `[theme] Could not read theme file` logged on every render when `public/theme.json` is absent (317k lines in the old PM2 log) | delivery-order-app, small issue |
 
 ## Step 8 rollback
