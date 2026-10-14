@@ -89,6 +89,9 @@
   notify: Reload systemd
   # No restart handler on purpose: restarting PM2 takes the Environment down. Restart by hand in a window.
 
+- name: Rotate PM2 logs (logrotate.timer, daily)
+  ansible.builtin.template: { src: logrotate-pm2.j2, dest: /etc/logrotate.d/pm2-tenants, mode: "0644" }
+
 - name: Flush handlers
   ansible.builtin.meta: flush_handlers
 

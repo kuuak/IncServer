@@ -12,6 +12,7 @@ Vocabulary (Tenant, Environment, ...): [CONTEXT.md](CONTEXT.md).
 | Tenant Environments (Next.js under PM2, one Unix user each) | `/var/www/<domain>/<env>`, `pm2-<user>.service` | tenant domains → port map | `tenant` (+ `nginx` port map) |
 | Node 22 + PM2 for the Environments | host (NodeSource apt) | – | `nodejs` |
 | App jobs (`POST /api/cron/*`: payment check every 10 min, token purge daily 03:15) per Environment | `app-<user>-<job>.timer` | – (localhost) | `tenant` |
+| PM2 log rotation per Environment (`<home>/.pm2/logs/*.log`, `pm2.log`): daily, `copytruncate`, 14 days gzipped | `/etc/logrotate.d/pm2-tenants` (logrotate.timer, 00:00) | – | `tenant` |
 | PostgreSQL 16 (one role + DB per Environment), Redis | host | localhost only | `tenant` (roles/DBs) |
 | nginx + certbot | host | 80, 443 (v4 + v6) | `nginx` |
 | Mailpit (catches all app mail, ADR-0003) | compose, `/var/www/mailhog.kuuak.ch` | UI mailhog.kuuak.ch (basic auth); SMTP 1025 v4 | `mailpit` |
@@ -76,6 +77,7 @@ with a filled vault**: the restic env and rclone.conf templates were written wit
 - An Environment with `nvm_node_version` still runs per-user nvm: `sudo -iu <user> bash -lc '…'` does not load it,
   use `sudo -iu <user> bash -c 'source ~/.nvm/nvm.sh; …'`. On system Node, `~/.nvm` must stay absent: `deploy-server.sh`
   sources it when present, and the PM2 dumps keep its bin dir first in PATH.
+- PM2 logs rotate with `copytruncate` (no PM2 reload), as each Environment's user. Never `cat`/`tail` them to look around: production's out-log holds whole orders (delivery-order-app#630). Measure with `wc`/`ls`.
 - After a reboot, production Next.js needs ~60 s of cold start before the first 200.
 - Never `source` or print a secrets file; inspect shapes (length, prefix) only.
 

@@ -1,0 +1,19 @@
+# Managed by Ansible (IncServer repo, roles/tenant). PM2 logs of every Tenant Environment.
+# copytruncate: PM2 keeps its files open (O_APPEND), so nothing has to reload or restart; a few lines written
+# between copy and truncate can be lost. No maxsize: logrotate.timer runs once a day, so it would never act.
+{% for t in tenants %}
+{% for e in t.environments %}
+{% set pm2 = '/var/www/' ~ t.domain ~ '/' ~ e.name ~ '/.pm2' %}
+
+{{ pm2 }}/logs/*.log {{ pm2 }}/pm2.log {
+    su {{ e.user }} {{ e.user }}
+    daily
+    rotate {{ tenant_pm2_log_rotate }}
+    copytruncate
+    compress
+    delaycompress
+    missingok
+    notifempty
+}
+{% endfor %}
+{% endfor %}
