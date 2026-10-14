@@ -1,6 +1,6 @@
 # One system-wide Node 22 LTS from NodeSource for every Tenant Environment (delivery-order-app #554), with PM2
-# installed for it. Replaces per-user nvm: an Environment moves over when its `nvm_node_version` is dropped (see
-# the `tenant` role). Installing this changes nothing that runs; no Environment uses it until its PM2 unit does.
+# installed for it. Every Tenant Environment's PM2 unit (role `tenant`) runs on it; it replaced per-user nvm
+# (docs/runbooks/2026-10-node22.md).
 - name: NodeSource signing key (NSolid, 6F71 F525 2828 41EE DAF8 51B4 2F59 B5F9 9B1B E0B4)
   ansible.builtin.copy: { src: nodesource.asc, dest: /etc/apt/keyrings/nodesource.asc, mode: "0644" }
 
