@@ -73,9 +73,8 @@ with a filled vault**: the restic env and rclone.conf templates were written wit
 - No role restarts a Tenant's PM2, dockerd, ssh, journald or Postgres. Those take the pizzerias down or restart every container: do them by hand, outside opening hours.
 - The box has no `python3-psycopg2`, so the `tenant` role talks to Postgres through `psql`: in `--check` a drifted DB shows as a changed "Postgres drift" task; an owner mismatch fails the run on purpose (fix it with a REASSIGN, as in step 8 of the cleanup runbook).
 - Docker-published ports bypass ufw. Mailpit's SMTP (1025, v4) is only limited by the portal firewall until `mailpit_smtp_filter_enabled` is on.
-- An Environment with `nvm_node_version` still runs per-user nvm: `sudo -iu <user> bash -lc '…'` does not load it,
-  use `sudo -iu <user> bash -c 'source ~/.nvm/nvm.sh; …'`. On system Node, `~/.nvm` must stay absent: `deploy-server.sh`
-  sources it when present, and the PM2 dumps keep its bin dir first in PATH.
+- Every Environment runs on the system Node 22 (role `nodejs`); there is no per-user nvm. A `~/.nvm` in an Environment's
+  home (e.g. copied over with a migrated Tenant) makes `deploy-server.sh` refuse to deploy: remove it, don't source it.
 - After a reboot, production Next.js needs ~60 s of cold start before the first 200.
 - Never `source` or print a secrets file; inspect shapes (length, prefix) only.
 
