@@ -96,7 +96,8 @@ tenant_app_jobs:
 # 0 = off. Today some are from 2026-02, so the first clean after turning this on deletes them.
 tenant_backups_max_age_days: 0
 
-# PM2 logs (<home>/.pm2/logs/*.log, pm2.log) are rotated daily by logrotate, this many compressed days kept.
+# PM2 logs (<home>/.pm2/logs/*.log, pm2.log) are rotated daily by logrotate, this many days kept (gzipped
+# but the newest). Rotated copies are excluded from restic (roles/backup/files/excludes.txt).
 # Production's out-log grows ~20 MB a day (delivery-order-app#630) and holds customer data, so keep it short.
 tenant_pm2_log_rotate: 14
 
