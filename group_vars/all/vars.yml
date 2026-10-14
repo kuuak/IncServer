@@ -46,9 +46,6 @@ mailpit_smtp_allowed_v4:
 #   basic_auth  template only; true = auth_basic with /var/www/<domain>/.htpasswd
 #   deploy_key  public half of the Environment's deploy key (private half = GitHub Environment secret SSH_KEY),
 #               installed with `restrict` (no shell tricks: no pty, forwarding, agent)
-#   nvm_node_version  legacy: the Environment still runs on its per-user nvm Node (PM2 unit points there). Without
-#               it, the Environment runs on the system Node 22 (role `nodejs`) and its ~/.nvm is renamed .nvm.retired.
-#               Drop it only when the app it runs needs Node 22 (delivery-order-app >= v1.4.0, #554).
 #   app_jobs    optional: names from `tenant_app_jobs` this Environment runs (default: all of them)
 tenants:
   - name: peperoncini

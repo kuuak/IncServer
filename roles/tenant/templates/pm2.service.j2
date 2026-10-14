@@ -1,12 +1,6 @@
 {% set home = '/var/www/' ~ item.0.domain ~ '/' ~ item.1.name %}
-{% if item.1.nvm_node_version is defined %}
-{% set node = home ~ '/.nvm/versions/node/' ~ item.1.nvm_node_version %}
-{% set path = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:' ~ node ~ '/bin:/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin' %}
-{% set pm2 = node ~ '/lib/node_modules/pm2/bin/pm2' %}
-{% else %}
 {% set path = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin' %}
 {% set pm2 = '/usr/lib/node_modules/pm2/bin/pm2' %}
-{% endif %}
 [Unit]
 Description=PM2 process manager
 Documentation=https://pm2.keymetrics.io/
