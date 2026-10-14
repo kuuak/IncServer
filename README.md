@@ -75,6 +75,8 @@ with a filled vault**: the restic env and rclone.conf templates were written wit
 - Docker-published ports bypass ufw. Mailpit's SMTP (1025, v4) is only limited by the portal firewall until `mailpit_smtp_filter_enabled` is on.
 - Every Environment runs on the system Node 22 (role `nodejs`); there is no per-user nvm. A `~/.nvm` in an Environment's
   home (e.g. copied over with a migrated Tenant) makes `deploy-server.sh` refuse to deploy: remove it, don't source it.
+  Nothing else catches it: the Peperoncini PM2 dumps still carry nvm's bin dir in `PATH` (checked 2026-10-14), so
+  the next PM2 restart or reboot would run the app on that nvm's Node.
 - After a reboot, production Next.js needs ~60 s of cold start before the first 200.
 - Never `source` or print a secrets file; inspect shapes (length, prefix) only.
 
