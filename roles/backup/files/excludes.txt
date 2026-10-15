@@ -2,5 +2,9 @@
 **/.next/cache
 **/.cache
 *.log
+# Rotated PM2 logs (tenant role, logrotate): customer data, kept `tenant_pm2_log_rotate` days on the box, not
+# for a year in restic.
+**/.pm2/logs/*.log.*
+**/.pm2/pm2.log.*
 **/.nvm
 **/.npm

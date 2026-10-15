@@ -78,6 +78,15 @@
   notify: Reload systemd
   # No restart handler on purpose: restarting PM2 takes the Environment down. Restart by hand in a window.
 
+- name: Rotate PM2 logs (logrotate.timer, daily)
+  ansible.builtin.template:
+    src: logrotate-pm2.j2
+    dest: /etc/logrotate.d/pm2-tenants
+    mode: "0644"
+    # logrotate skips a config file not owned by root and still exits 0, and Ansible's temp file belongs to the SSH
+    # user: check a root-owned copy. -d changes nothing; -s /dev/null keeps it off the real state file.
+    validate: sh -c 'f=$(mktemp) && cat %s > "$f" && logrotate -d -s /dev/null "$f"; r=$?; rm -f "$f"; exit $r'
+
 - name: Flush handlers
   ansible.builtin.meta: flush_handlers
 

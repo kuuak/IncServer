@@ -12,6 +12,7 @@ Vocabulary (Tenant, Environment, ...): [CONTEXT.md](CONTEXT.md).
 | Tenant Environments (Next.js under PM2, one Unix user each) | `/var/www/<domain>/<env>`, `pm2-<user>.service` | tenant domains → port map | `tenant` (+ `nginx` port map) |
 | Node 22 + PM2 for the Environments | host (NodeSource apt) | – | `nodejs` |
 | App jobs (`POST /api/cron/*`: payment check every 10 min, token purge daily 03:15) per Environment | `app-<user>-<job>.timer` | – (localhost) | `tenant` |
+| PM2 log rotation per Environment (`<home>/.pm2/logs/*.log`, `pm2.log`): daily, `copytruncate`, 14 days kept (gzipped but the newest) | `/etc/logrotate.d/pm2-tenants` (logrotate.timer, 00:00–01:00) | – | `tenant` |
 | PostgreSQL 16 (one role + DB per Environment), Redis | host | localhost only | `tenant` (roles/DBs) |
 | nginx + certbot | host | 80, 443 (v4 + v6) | `nginx` |
 | Mailpit (catches all app mail, ADR-0003) | compose, `/var/www/mailhog.kuuak.ch` | UI mailhog.kuuak.ch (basic auth); SMTP 1025 v4 | `mailpit` |
@@ -77,6 +78,8 @@ with a filled vault**: the restic env and rclone.conf templates were written wit
   home (e.g. copied over with a migrated Tenant) makes `deploy-server.sh` refuse to deploy: remove it, don't source it.
   Nothing else catches it: the Peperoncini PM2 dumps still carry nvm's bin dir in `PATH` (checked 2026-10-14), so
   the next PM2 restart or reboot would run the app on that nvm's Node.
+- PM2 logs rotate with `copytruncate` (no PM2 reload), as each Environment's user. Never `cat`/`tail` them to look around: production's out-log holds whole orders (delivery-order-app#630). Measure with `wc`/`ls`.
+  Rotated copies are excluded from restic (role `backup`), like the live `*.log`.
 - After a reboot, production Next.js needs ~60 s of cold start before the first 200.
 - Never `source` or print a secrets file; inspect shapes (length, prefix) only.
 
