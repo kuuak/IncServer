@@ -85,7 +85,7 @@
     content: |
       # Managed by Ansible (IncServer repo, roles/motd). The last apply's controller checkout; read by incserver-status.
       {{ motd_release_key | trim }}
-      applied={{ now(fmt='%Y-%m-%dT%H:%M:%S%z') }}
+      applied={{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}
       by={{ lookup('ansible.builtin.env', 'USER') }}
       tags={{ ansible_run_tags | join(',') }}
   when: (motd_release_key | trim) not in (motd_release_box.content | default('') | b64decode)
