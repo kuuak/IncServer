@@ -16,9 +16,9 @@ firewall_allowed_apps: [OpenSSH, Nginx Full]
 # writes the file only; dockerd must be restarted by hand in a window (it restarts every container).
 docker_daemon_json_enabled: false
 
-# nginx: a catch-all default_server that answers unknown Host headers with 444 and rejects TLS handshakes
-# for unknown SNI. None exists today, so today the first vhost loaded answers them.
-nginx_catch_all_enabled: false
+# nginx: a catch-all default_server (v4 + v6, 80 + 443) that answers unknown Host headers with 444 and rejects
+# TLS handshakes for unknown or missing SNI. Off = the first vhost loaded (mailhog) answers them (Audit M2, #7).
+nginx_catch_all_enabled: true
 
 # --- Tools on the box (internal, behind nginx basic auth) ----------------------
 nginx_tool_sites: [mailhog.kuuak.ch, netdata.kuuak.ch]
