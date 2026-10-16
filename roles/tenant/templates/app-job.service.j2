@@ -14,8 +14,9 @@ WorkingDirectory={{ home }}/current
 Environment=NODE_ENV=production
 ExecStart=/usr/local/sbin/tenant-app-job {{ e.port }} {{ job.name }}
 # Sandbox (`systemd-analyze security` 1.3, target <= 4.0): the job only reads its release (node) and curls
-# 127.0.0.1. None of this reaches the healthchecks drop-in's `+` hc-ping (root, outside the namespaces and the seccomp
-# filters), but cgroup-wide settings would: no IPAddressDeny= (hc-ping talks to healthchecks.io). Left out on purpose:
+# 127.0.0.1. The healthchecks drop-in's `+` hc-ping runs as root outside the namespaces and the seccomp filters, but
+# cgroup-wide settings reach it: PrivateDevices= and ProtectClock= imply DevicePolicy=closed (hc-ping only uses
+# /dev/null), and there is no IPAddressDeny= (hc-ping talks to healthchecks.io). Left out on purpose:
 # MemoryDenyWriteExecute= (V8's JIT needs writable + executable memory: node dies with SIGTRAP), ProcSubset=pid
 # (hides /proc/cpuinfo and /proc/stat from node's os.cpus(), for no change in the score).
 NoNewPrivileges=yes
