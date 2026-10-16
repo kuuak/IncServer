@@ -1,0 +1,140 @@
+# Login status screen for admins, in place of Ubuntu's help links, ads and sysinfo: `incserver-status`, shown at login
+# to members of `sudo` (Tenant users never see it). The slow checks run every 5 min (motd-collect.timer, as root) into
+# /run/incserver-status; the login only reads that cache and a few live values. Nothing here is restarted.
+
+# --- Stock MOTD parts ------------------------------------------------------------------------
+# Kept: 00-header, 85-fwupd, 92-unattended-upgrades, 95-hwe-eol, 97-overlayroot, 98-*: short, and still shown
+# to everyone when the status screen is not (Tenant users, a broken cache).
+- name: Stock MOTD news off (Canonical's ads from motd.ubuntu.com)
+  ansible.builtin.lineinfile: { path: /etc/default/motd-news, regexp: '^ENABLED=', line: ENABLED=0 }
+
+- name: Stock MOTD parts on the box
+  ansible.builtin.stat: { path: "/etc/update-motd.d/{{ item }}" }
+  loop: "{{ motd_stock_parts_off }}"
+  register: motd_stock
+
+# 50-landscape-sysinfo is a symlink (made by landscape-common's postinst): its target loses the bit.
+- name: Stock MOTD part files
+  ansible.builtin.set_fact:
+    motd_stock_off: "{{ motd_stock_off | default([]) + [item.stat.lnk_source | default(item.stat.path)] }}"
+  loop: "{{ motd_stock.results | selectattr('stat.exists') }}"
+  loop_control: { label: "{{ item.item }}" }
+
+- name: Stock MOTD parts off (no exec bit, so run-parts skips them)
+  ansible.builtin.file: { path: "{{ item }}", state: file, mode: "0644" }
+  loop: "{{ motd_stock_off | default([]) }}"
+
+- name: Existing dpkg stat overrides
+  ansible.builtin.command: dpkg-statoverride --list
+  check_mode: false
+  changed_when: false
+  failed_when: motd_statoverride.rc > 1   # 1: no override at all
+  register: motd_statoverride
+
+# A package upgrade puts the exec bit back: the landscape wrapper on every landscape-common upgrade, the others when
+# their conffile changes. dpkg keeps an override's mode across upgrades. Undo: `dpkg-statoverride --remove <file>`.
+- name: Stock MOTD parts stay off across package upgrades (dpkg stat override)
+  ansible.builtin.command: dpkg-statoverride --force-statoverride-add --update --add root root 0644 {{ item }}
+  changed_when: true
+  when: ('root root 644 ' ~ item) not in motd_statoverride.stdout_lines
+  loop: "{{ motd_stock_off | default([]) }}"
+
+# --- Status screen ---------------------------------------------------------------------------
+# A malformed entry would only make the screen skip it, i.e. silently never warn: fail the run instead. Unquoted, YAML
+# reads 11:00 as the number 660.
+- name: Opening hours are well-formed (days Mon..Sun, quoted "HH:MM", same day)
+  ansible.builtin.assert:
+    that:
+      - item.days is string and item.days is match('^' ~ motd_day_re ~ '(,' ~ motd_day_re ~ ')*$')
+      - item.from is string and item.from is match('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+      - item.to is string and item.to is match('^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$')
+      - item.to > item.from
+    fail_msg: "motd_opening_hours: {{ item }}"
+    quiet: true
+  vars: { motd_day_re: '(Mon|Tue|Wed|Thu|Fri|Sat|Sun)(-(Mon|Tue|Wed|Thu|Fri|Sat|Sun))?' }
+  loop: "{{ motd_opening_hours }}"
+
+- name: Status config (Environments, services, opening hours; no secrets)
+  ansible.builtin.template:
+    src: incserver-status.conf.j2
+    dest: /etc/incserver-status.conf
+    owner: root
+    group: sudo   # lists every Environment's user, home and host: the screen's readers only
+    mode: "0640"
+  notify: Collect status
+
+- name: Collector script
+  ansible.builtin.copy: { src: motd-collect, dest: /usr/local/sbin/motd-collect, mode: "0755" }
+  notify: Collect status
+
+- name: Collector units
+  ansible.builtin.copy: { src: "{{ item }}", dest: "/etc/systemd/system/{{ item }}", mode: "0644" }
+  loop: [motd-collect.service, motd-collect.timer]
+  notify: [Reload systemd, Collect status]
+
+- name: Status command
+  ansible.builtin.copy: { src: incserver-status, dest: /usr/local/bin/incserver-status, mode: "0755" }
+
+- name: Status at login (members of sudo, interactive shells)
+  ansible.builtin.copy: { src: zz-incserver-status.sh, dest: /etc/profile.d/zz-incserver-status.sh, mode: "0644" }
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable collector timer
+  ansible.builtin.systemd: { name: motd-collect.timer, enabled: true, state: started }
+  ignore_errors: "{{ ansible_check_mode }}"   # the unit does not exist yet during a first dry run
+
+# --- Apply marker ----------------------------------------------------------------------------
+# /etc/incserver-release: the controller checkout of the last apply (any role: tagged always), for the screen's
+# second line. Rewritten on every apply (its time, user and tags are the latest), so an apply always reports it
+# changed; --check reports it only when the box's last apply was another commit or diff.
+- name: Controller checkout
+  ansible.builtin.shell: |
+    set -o pipefail
+    git rev-parse --short HEAD 2>/dev/null || echo unknown
+    git remote get-url origin 2>/dev/null || echo unknown
+    if git diff --quiet HEAD 2>/dev/null; then echo no; else git diff HEAD | git hash-object --stdin | cut -c1-7; fi
+  args: { chdir: "{{ playbook_dir }}", executable: /bin/bash }
+  delegate_to: localhost
+  become: false
+  run_once: true
+  check_mode: false
+  changed_when: false
+  register: motd_git
+  tags: [always]
+
+- name: Commit and diff to record
+  ansible.builtin.set_fact:
+    motd_release_key: |
+      repo={{ motd_git.stdout_lines[1] | regex_replace('^.*github\.com[:/]', '') | regex_replace('\.git$', '') }}
+      commit={{ motd_git.stdout_lines[0] }}
+      dirty={{ motd_git.stdout_lines[2] }}
+  tags: [always]
+
+- name: Recorded apply
+  ansible.builtin.slurp: { src: /etc/incserver-release }
+  register: motd_release_box
+  failed_when: false
+  when: ansible_check_mode
+  tags: [always]
+
+# The real marker would always show changed in a dry run (its time): report only a commit or diff the box hasn't seen.
+- name: Apply marker (dry run, commit or diff not yet on the box)
+  ansible.builtin.debug: { msg: "{{ motd_release_key | trim }}" }
+  changed_when: true
+  when: ansible_check_mode and (motd_release_key | trim) not in (motd_release_box.content | default('') | b64decode)
+  tags: [always]
+
+- name: Apply marker (commit, diff hash or "no", time, controller user, tags)
+  ansible.builtin.copy:
+    dest: /etc/incserver-release
+    mode: "0644"
+    content: |
+      # Managed by Ansible (IncServer repo, roles/motd). The last apply's controller checkout; read by incserver-status.
+      {{ motd_release_key | trim }}
+      applied={{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}
+      by={{ lookup('ansible.builtin.env', 'USER') }}
+      tags={{ ansible_run_tags | join(',') }}
+  when: not ansible_check_mode
+  tags: [always]

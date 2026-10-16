@@ -1,0 +1,204 @@
+#!/bin/bash
+# Managed by Ansible (IncServer repo, roles/motd). The slow half of the login status screen (incserver-status):
+# run as root by motd-collect.timer (every 5 min and at boot), writes key=value lines to /run/incserver-status/status
+# (0640 root:sudo, tmp + mv). Tenant users must not see other Environments' state, hence the group.
+# Reads systemd state, file timestamps, the nginx port map and public certificate data only: never an .env file,
+# /etc/restic, /etc/healthchecks or anything from the vault. A check that fails leaves its key empty ("–" on screen).
+#   MOTD_CACHE_DIR, INCSERVER_STATUS_CONF: other paths, for a test run.
+set -u
+export LC_ALL=C.UTF-8
+conf=${INCSERVER_STATUS_CONF:-/etc/incserver-status.conf}
+dir=${MOTD_CACHE_DIR:-/run/incserver-status}
+portmap=/etc/nginx/conf.d/app-ports-map.conf
+
+mkdir -p "$dir" || exit 1
+tmp=$(mktemp "$dir/.status.XXXXXX") || exit 1
+trap 'rm -f "$tmp"' EXIT
+exec 3>"$tmp"
+
+put() { local v=${2:-}; printf '%s=%s\n' "$1" "${v//$'\n'/ }" >&3; }
+q() { timeout 10 "$@" 2>/dev/null; }
+
+# systemctl show into P[]; timestamps as epoch seconds (the Next* timer properties stay human-readable)
+declare -A P
+props() {
+	local unit=$1 line args=()
+	shift
+	P=()
+	for p; do args+=(-p "$p"); done
+	while IFS= read -r line; do
+		P[${line%%=*}]=${line#*=}
+	done < <(q systemctl show --timestamp=unix "${args[@]}" "$unit")
+}
+epoch() { local v=${1#@}; [[ $v =~ ^[0-9]+$ ]] && printf '%s' "$v"; }
+
+# --- Config: what the box should run (rendered from group_vars by Ansible) -----------------------------
+envs=() services=()
+while read -r kind rest; do
+	case $kind in
+	env) envs+=("$rest") ;;
+	service) services+=("$rest") ;;
+	esac
+done < <(grep -v '^#' "$conf" 2>/dev/null)
+
+put collected "$(date +%s)"
+
+# --- Updates, unattended-upgrades, reboot window -------------------------------------------------------
+# apt-check prints "<updates>;<security>" on stderr (ESM-only security updates are not counted: not installable).
+# As nobody: it then never rewrites apt's caches, it only reads them. setpriv, not runuser: no PAM session
+# logged (journal, auth.log) every 5 min.
+counts=$(timeout 60 setpriv --reuid=nobody --regid=nogroup --clear-groups -- /usr/lib/update-notifier/apt-check 2>&1 >/dev/null)
+if [[ $counts =~ ^([0-9]+)\;([0-9]+)$ ]]; then
+	put updates "${BASH_REMATCH[1]}"
+	put security "${BASH_REMATCH[2]}"
+fi
+props apt-daily-upgrade.service Result ExecMainStartTimestamp
+put uu_result "${P[Result]:-}"
+put uu_start "$(epoch "${P[ExecMainStartTimestamp]:-}")"
+# upgrade-stamp is only touched when unattended-upgrade succeeded (same success test as roles/healthchecks)
+put uu_stamp "$(q stat -c %Y /var/lib/apt/periodic/upgrade-stamp)"
+
+if [ -e /run/reboot-required ]; then
+	put reboot_since "$(q stat -c %Y /run/reboot-required)"
+	put reboot_pkgs "$(q tr '\n' ' ' </run/reboot-required.pkgs)"
+fi
+props reboot-if-required.timer ActiveState NextElapseUSecRealtime
+put reboot_timer "${P[ActiveState]:-}"
+next=${P[NextElapseUSecRealtime]:-}
+# "Tue 2026-10-20 04:30:00 CEST": drop the zone abbreviation, the box runs on Europe/Zurich
+[ -n "$next" ] && put reboot_next "$(q date -d "${next% *}" +%s)"
+
+# --- Backup, certificates --------------------------------------------------------------------------
+props restic-backup.service Result ActiveState ExecMainStartTimestamp ExecMainExitTimestamp
+put backup_result "${P[Result]:-}"
+put backup_state "${P[ActiveState]:-}"
+put backup_start "$(epoch "${P[ExecMainStartTimestamp]:-}")"
+put backup_end "$(epoch "${P[ExecMainExitTimestamp]:-}")"
+props restic-backup.timer ActiveState
+put backup_timer "${P[ActiveState]:-}"
+
+soonest='' soonest_name='' expired=''
+now=$(date +%s)
+for cert in /etc/letsencrypt/live/*/cert.pem; do
+	[ -r "$cert" ] || continue
+	end=$(q openssl x509 -enddate -noout -in "$cert") || continue
+	end=$(q date -d "${end#notAfter=}" +%s) || continue
+	name=${cert%/cert.pem} name=${name##*/}
+	[ "$end" -le "$now" ] && expired+="$name "
+	if [ -z "$soonest" ] || [ "$end" -lt "$soonest" ]; then soonest=$end soonest_name=$name; fi
+done
+put cert_soonest "$soonest"
+put cert_soonest_name "$soonest_name"
+put cert_expired "$expired"
+props certbot.timer ActiveState
+put certbot_timer "${P[ActiveState]:-}"
+props certbot.service Result
+put certbot_result "${P[Result]:-}"
+
+# --- Services, failed units ------------------------------------------------------------------------
+for s in "${services[@]}"; do
+	read -r label unit <<<"$s"
+	case $unit in
+	docker:*)
+		# "running/healthy"; the template braces are Go's, for docker inspect
+		state=$(q docker inspect -f '{{.State.Status}}{{if .State.Health}}/{{.State.Health.Status}}{{end}}' "${unit#docker:}")
+		;;
+	*)
+		state=$(q systemctl show -p ActiveState --value "$unit")
+		;;
+	esac
+	put "svc.$label" "$state"
+done
+failed=$(q systemctl list-units --failed --plain --no-legend --no-pager | awk '{print $1}')
+put failed_count "$(printf '%s' "$failed" | grep -c .)"
+put failed_units "$failed"
+
+# --- Environments: PM2, HTTP, Node, release, app jobs, nvm leftovers ---------------------------------
+for e in "${envs[@]}"; do
+	read -r _ _ user home host jobs <<<"$e"
+	[ -n "${host:-}" ] || continue
+	k=env.$user
+
+	props "pm2-$user.service" ActiveState MainPID ControlGroup
+	put "$k.pm2" "${P[ActiveState]:-}"
+	# Node of the app (not of the PM2 daemon, MainPID): any other node process in the unit's cgroup
+	node='' nvm=0 stale=0
+	for pid in $(q cat "/sys/fs/cgroup${P[ControlGroup]:-/none}/cgroup.procs"); do
+		[ "$pid" = "${P[MainPID]:-}" ] && continue
+		exe=$(q readlink "/proc/$pid/exe") || continue
+		[[ $exe == */node || $exe == *'/node (deleted)' ]] || continue
+		[[ $exe == *' (deleted)' ]] && stale=1
+		if [[ $exe =~ /\.nvm/versions/node/v([0-9.]+)/ ]]; then
+			# Never execute a binary from a Tenant's home as root: the version is in the path
+			node=${BASH_REMATCH[1]} nvm=1
+		elif [ "$(q stat -L -c %u "/proc/$pid/exe")" = 0 ]; then
+			# /proc/<pid>/exe is the running binary, even when apt has replaced the file since
+			node=$(q "/proc/$pid/exe" --version) node=${node#v}
+		fi
+		break
+	done
+	put "$k.node" "$node"
+	put "$k.node_nvm" "$nvm"
+	put "$k.node_stale" "$stale"
+
+	if [ -d "$home/current" ]; then
+		put "$k.deployed" 1
+		put "$k.release_time" "$(q stat -c %Y "$home/current")"
+		# The app version only, from package.json; nothing else is read from the release
+		ver=$(q grep -m1 -oE '"version"[[:space:]]*:[[:space:]]*"[^"]+"' "$home/current/package.json")
+		ver=${ver%\"} ver=${ver##*\"}
+		# Written by the Tenant's release: no escape sequences into an admin's terminal, no table-wide string
+		ver=${ver//[^0-9A-Za-z.+_-]/}
+		put "$k.release_version" "${ver:0:20}"
+	else
+		put "$k.deployed" 0
+	fi
+
+	port=$(awk -v h="$host" '$1 == h { sub(/;$/, "", $2); print $2 }' "$portmap" 2>/dev/null)
+	put "$k.port" "$port"
+	if [ -n "$port" ]; then
+		# Like tenant-app-job: straight to the app, as nginx proxies it (Host header included)
+		put "$k.http" "$(curl -s -o /dev/null -m 5 -H "Host: $host" -w '%{http_code}' "http://127.0.0.1:$port/")"
+	fi
+
+	for job in ${jobs//,/ }; do
+		[ "$job" = - ] && continue
+		unit=app-$user-$job
+		props "$unit.timer" ActiveState
+		timer=${P[ActiveState]:-}
+		props "$unit.service" LoadState ActiveState Result ConditionResult ConditionTimestamp \
+			ExecMainStartTimestamp ExecMainExitTimestamp
+		start=$(epoch "${P[ExecMainStartTimestamp]:-}") cond=$(epoch "${P[ConditionTimestamp]:-}")
+		exit_ts=$(epoch "${P[ExecMainExitTimestamp]:-}")
+		if [ "${P[LoadState]:-}" != loaded ]; then
+			state=missing t=''
+		elif [ "${P[ActiveState]:-}" = activating ]; then
+			state=running t=$start
+		elif [ "${P[ConditionResult]:-}" = no ] && [ "${cond:-0}" -ge "${start:-0}" ]; then
+			# ConditionPathExists= (no release yet): skipped, not failed
+			state=skipped t=$cond
+		elif [ -z "$start" ]; then
+			state=never t=''
+		elif [ "${P[Result]:-}" = success ]; then
+			state=ok t=${exit_ts:-$start}
+		else
+			state=failed t=${exit_ts:-$start}
+		fi
+		[ "$timer" = active ] || state=timer-$timer
+		put "$k.job.$job" "$state"
+		put "$k.job.$job.time" "$t"
+	done
+
+	# README Gotchas: a ~/.nvm makes deploy-server.sh refuse to deploy, and a PM2 dump with nvm's bin dir in PATH
+	# runs the app on that nvm at the next PM2 restart. grep -q only: the dump holds the app's environment.
+	[ -e "$home/.nvm" ] && put "$k.nvm_home" 1
+	q grep -qE '"PATH"[[:space:]]*:[[:space:]]*"[^"]*/\.nvm/' "$home/.pm2/dump.pm2" && put "$k.nvm_dump" 1
+done
+
+# --- SSH: failed logins in the last 24 h (password auth is off; these are scanners) -------------------
+put ssh_failed "$(q journalctl -u ssh.service --since -24h -o cat --no-pager |
+	grep -cE '^(Invalid user |Connection (closed|reset) by authenticating user |Disconnected from authenticating user )')"
+
+exec 3>&-
+chmod 0640 "$tmp" && chgrp sudo "$tmp" 2>/dev/null
+mv -f "$tmp" "$dir/status"
