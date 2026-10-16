@@ -4,13 +4,14 @@
 # Fast on purpose: reads the cache motd-collect writes every 5 min (/run/incserver-status/status, root:sudo) plus a
 # few live values (uptime, load, memory, disk, sessions). Refresh: sudo systemctl start motd-collect.service
 #   incserver-status [--no-color]        (NO_COLOR is honoured as well)
-#   MOTD_CACHE_DIR, INCSERVER_STATUS_CONF, INCSERVER_RELEASE: other paths, for a test run.
+#   MOTD_CACHE_DIR, INCSERVER_STATUS_CONF, INCSERVER_RELEASE, INCSERVER_BANNER: other paths, for a test run.
 set -u
 shopt -s extglob
 export LC_ALL=C.UTF-8
 conf=${INCSERVER_STATUS_CONF:-/etc/incserver-status.conf}
 cache=${MOTD_CACHE_DIR:-/run/incserver-status}/status
 release=${INCSERVER_RELEASE:-/etc/incserver-release}
+banner=${INCSERVER_BANNER:-/etc/incserver-status.banner}
 stale_after=900   # s; motd-collect runs every 300
 
 color=1
@@ -21,9 +22,9 @@ case ${1:-} in
 esac
 
 if [ $color = 1 ]; then
-	R=$'\e[31m' Y=$'\e[33m' G=$'\e[32m' D=$'\e[2m' B=$'\e[1m' N=$'\e[0m'
+	R=$'\e[31m' Y=$'\e[33m' G=$'\e[32m' A=$'\e[36m' D=$'\e[2m' B=$'\e[1m' N=$'\e[0m'
 else
-	R='' Y='' G='' D='' B='' N=''
+	R='' Y='' G='' A='' D='' B='' N=''
 fi
 OK="${G}✓${N}" BAD="${R}✗${N}"
 
@@ -54,11 +55,12 @@ warn() { warnings+=("${Y}⚠${N}  $*"); }
 alarm() { warnings+=("${R}⚠${N}  $*"); }
 
 # --- Inputs: config (from group_vars), the collector's cache, the last Ansible apply ---------------------
-title='IncServer' backup_label='' web='' envs=() services=() hours=()
+title='IncServer' subtitle='' backup_label='' web='' envs=() services=() hours=()
 declare -A label
 while read -r kind rest; do
 	case $kind in
 	title) title=$rest ;;
+	subtitle) subtitle=$rest ;;
 	backup) backup_label=$rest ;;
 	web) web=$rest ;;
 	env) envs+=("$rest") ;;
@@ -113,6 +115,11 @@ collected=$(c collected)
 if [ $have_cache = 0 ]; then
 	if [ -e "$cache" ]; then alarm "Status cache not readable (members of sudo only): $cache"
 	else alarm "No status cache yet: sudo systemctl start motd-collect.service"; fi
+	# Ubuntu's own reboot notice is off (motd_stock_parts_off): keep that one even without the cache
+	if [ -e /run/reboot-required ]; then
+		pk=$(tr '\n' ' ' </run/reboot-required.pkgs 2>/dev/null) pk=${pk% }
+		warn "Reboot required${pk:+ (${pk// /, })}"
+	fi
 elif ! [[ $collected =~ ^[0-9]+$ ]] || ((now - collected > stale_after)); then
 	alarm "Status cache is stale (collected $(hm "$collected"), $(ago "$collected")): systemctl status motd-collect.timer"
 fi
@@ -211,12 +218,31 @@ self=0
 [ -n "$you" ] && [ -t 0 ] && self=1
 others=$((sessions - self))
 ((others < 0)) && others=0
+# The previous login, in place of sshd's "Last login" (PrintLastLog no, role base): the 2nd most recent in wtmp
+read -r _ _ prev_ip prev_at _ < <(last -i -w -n 2 --time-format iso "$(id -un)" 2>/dev/null | sed -n 2p)
+prev_at=$(date -d "${prev_at:-x}" +%s 2>/dev/null)
+[ "${prev_ip:-}" = 0.0.0.0 ] && prev_ip=console
+
+os=$(sed -n 's/^PRETTY_NAME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/os-release 2>/dev/null)
 
 # --- Screen -------------------------------------------------------------------------------------------
 W=84
-right=$(date '+%a %d %b %H:%M %Z')
-gap=$((W - 1 - $(vlen "$title") - ${#right}))
-printf ' %s%*s%s\n' "$B$title$N" $((gap > 1 ? gap : 1)) '' "$D$right$N"
+when=$(date '+%a %d %b %H:%M %Z')
+art=()
+[ -r "$banner" ] && mapfile -t art < <(grep -v '^#' "$banner")
+artw=0
+for l in "${art[@]}"; do ((${#l} > artw)) && artw=${#l}; done
+infow=$(printf '%s\n' "$subtitle" "$os" "$when" | awk '{ n = length($0); if (n > m) m = n } END { print m + 0 }')
+if ((${#art[@]} == 3 && 1 + artw + 3 + infow <= W)) && [ -n "$subtitle" ]; then
+	# The banner, with the environment, Ubuntu release and time beside it
+	info=("$B$subtitle$N" "$D${os:-–}$N" "$D$when$N")
+	for i in 0 1 2; do printf ' %s%s%s%*s   %s\n' "$A" "${art[i]}" "$N" $((artw - ${#art[i]})) '' "${info[i]}"; done
+else
+	right=$when
+	((${#title} + ${#os} + ${#when} + 6 <= W)) && [ -n "$os" ] && right="$os · $when"
+	gap=$((W - 1 - $(vlen "$title") - ${#right}))
+	printf ' %s%*s%s\n' "$B$title$N" $((gap > 1 ? gap : 1)) '' "$D$right$N"
+fi
 if [ -n "${REL[commit]:-}" ]; then
 	at=$(date -d "${REL[applied]:-}" '+%d %b %H:%M' 2>/dev/null || printf '?')
 	dirty=''
@@ -330,10 +356,13 @@ if ((${#envs[@]})); then
 fi
 
 ac="you: ${you:-local}"
-((others)) && ac+=" · $others other session$( ((others > 1)) && printf s)"
-sf=$(c ssh_failed)
-[ -n "$sf" ] && ac+=" · $D$sf failed SSH logins / 24h$N"
+[ -n "${prev_at:-}" ] && ac+=" · previous login $(hm "$prev_at") from ${prev_ip:-?}"
 row Access "$ac"
+ac2=''
+((others)) && ac2="$others other session$( ((others > 1)) && printf s)"
+sf=$(c ssh_failed)
+[ -n "$sf" ] && ac2+="${ac2:+ · }$D$sf failed SSH logins / 24h$N"
+[ -n "$ac2" ] && row '' "$ac2"
 [ -n "$web" ] && row Web "${web// / · }"
 if [ $have_cache = 1 ]; then
 	printf ' %sChecked %s (%s) by motd-collect.timer · refresh: sudo systemctl start motd-collect%s\n' \

@@ -1,0 +1,5 @@
+# Managed by Ansible (IncServer repo, roles/motd). The status screen's header, drawn in incserver-status's accent
+# colour: a 5-pixel font, two pixel rows per line (▀ top, ▄ bottom, █ both). Lines starting with # are skipped.
+▀█▀ ▄▄▄   ▄▄ ▄▀▀▀  ▄▄  ▄ ▄▄ ▄   ▄  ▄▄  ▄ ▄▄
+ █  █  █ █    ▀▀▄ █▀▀▀ █▀   ▀▄ ▄▀ █▀▀▀ █▀
+▀▀▀ ▀  ▀  ▀▀ ▀▀▀   ▀▀▀ ▀      ▀    ▀▀▀ ▀

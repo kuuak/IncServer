@@ -33,7 +33,7 @@
   notify: Reload systemd
   # Takes effect at each unit's next restart; never restart ssh/journald/postgres from here.
 
-- name: SSHD drop-in (PermitRootLogin no, X11Forwarding no)
+- name: SSHD drop-in (PermitRootLogin no, X11Forwarding no, PrintLastLog no)
   ansible.builtin.copy:
     src: sshd-10-incserver.conf
     dest: /etc/ssh/sshd_config.d/10-incserver.conf

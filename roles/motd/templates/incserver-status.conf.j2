@@ -1,6 +1,7 @@
 # Managed by Ansible (IncServer repo, roles/motd). Read by motd-collect and incserver-status; no secrets here.
 # Ports come from the nginx port map (/etc/nginx/conf.d/app-ports-map.conf), by host.
-title {{ motd_title }}
+title {{ motd_name }} · {{ motd_subtitle }}
+subtitle {{ motd_subtitle }}
 backup {{ motd_backup_label }}
 web {{ nginx_tool_sites | join(' ') }}
 {% for s in motd_services %}

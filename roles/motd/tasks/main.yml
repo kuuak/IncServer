@@ -3,8 +3,9 @@
 # /run/incserver-status; the login only reads that cache and a few live values. Nothing here is restarted.
 
 # --- Stock MOTD parts ------------------------------------------------------------------------
-# Kept: 00-header, 85-fwupd, 92-unattended-upgrades, 95-hwe-eol, 97-overlayroot, 98-*: short, and still shown
-# to everyone when the status screen is not (Tenant users, a broken cache).
+# Kept: 85-fwupd, 92-unattended-upgrades, 95-hwe-eol, 97-overlayroot, 98-fsck-at-reboot: silent unless something needs
+# doing, and shown to everyone (Tenant users too). The reboot notice is off: the screen checks /run/reboot-required
+# itself, cache or not. sshd's "Last login" is off too (role base); the screen shows the previous login.
 - name: Stock MOTD news off (Canonical's ads from motd.ubuntu.com)
   ansible.builtin.lineinfile: { path: /etc/default/motd-news, regexp: '^ENABLED=', line: ENABLED=0 }
 
@@ -85,6 +86,9 @@
 
 - name: Status command
   ansible.builtin.copy: { src: incserver-status, dest: /usr/local/bin/incserver-status, mode: "0755" }
+
+- name: Status banner (the header's "IncServer")
+  ansible.builtin.copy: { src: incserver-status.banner, dest: /etc/incserver-status.banner, mode: "0644" }
 
 - name: Status at login (members of sudo, interactive shells)
   ansible.builtin.copy: { src: zz-incserver-status.sh, dest: /etc/profile.d/zz-incserver-status.sh, mode: "0644" }
