@@ -45,8 +45,9 @@ put collected "$(date +%s)"
 
 # --- Updates, unattended-upgrades, reboot window -------------------------------------------------------
 # apt-check prints "<updates>;<security>" on stderr (ESM-only security updates are not counted: not installable).
-# As nobody: it then never rewrites apt's caches, it only reads them.
-counts=$(timeout 60 runuser -u nobody -- /usr/lib/update-notifier/apt-check 2>&1 >/dev/null)
+# As nobody: it then never rewrites apt's caches, it only reads them. setpriv, not runuser: no PAM session
+# logged (journal, auth.log) every 5 min.
+counts=$(timeout 60 setpriv --reuid=nobody --regid=nogroup --clear-groups -- /usr/lib/update-notifier/apt-check 2>&1 >/dev/null)
 if [[ $counts =~ ^([0-9]+)\;([0-9]+)$ ]]; then
 	put updates "${BASH_REMATCH[1]}"
 	put security "${BASH_REMATCH[2]}"
