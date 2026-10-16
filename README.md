@@ -33,7 +33,8 @@ ansible-playbook site.yml --check --diff      # always first; must show only wha
 ansible-playbook site.yml --tags nginx        # apply one role
 ```
 
-SSH goes through the `IncServer` entry in `~/.ssh/config` (user `ubuntu`, passwordless sudo).
+SSH goes through the `IncServer` entry in `~/.ssh/config` (user `ubuntu`, passwordless sudo). sshd only lets in
+`ubuntu` and the Environment users (`AllowUsers`), with `MaxAuthTries 3` and no TCP or agent forwarding (no `ssh -L`).
 On the box, `incserver-status` answers "is anything wrong, is it safe to touch things?" (also shown at login);
 `sudo systemctl start motd-collect` refreshes it. Every apply records the controller's commit, time, user and tags in `/etc/incserver-release`.
 
@@ -46,8 +47,8 @@ Hardening is behind switches in `group_vars/all/vars.yml`, all off. Turn on one 
 Every Environment is one entry under `tenants:` in `group_vars/all/vars.yml`. Onboarding one (e.g. Tomate):
 
 1. DNS for its hosts → IncServer (A + AAAA); add its DB password to the vault (`vault_tenant_db_passwords`).
-2. Add the entry, `--check --diff --tags tenant,nginx`, apply: user, home, PM2 unit (enabled, not
-   started), Postgres role + DB, port-map line, vhost.
+2. Add the entry, `--check --diff --tags base,tenant,nginx`, apply: sshd `AllowUsers`, user, home, PM2 unit
+   (enabled, not started), Postgres role + DB, port-map line, vhost.
 3. `certbot certonly --nginx -d <host>` (certificates are not managed here), then `nginx -t && systemctl reload nginx`.
 4. First deploy from the app repo; restore data if it moves from another host.
 5. App jobs run from the first deploy on (skipped until `current/` exists); the release's env files need `CRON_SECRET`.

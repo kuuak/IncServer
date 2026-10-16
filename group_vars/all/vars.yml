@@ -7,6 +7,10 @@ swap_size_mb: 2048
 swap_swappiness: 10
 oom_protected_units: [ssh, systemd-journald, nginx, postgresql@16-main]
 
+# sshd drop-in (role base): AllowUsers = these + every Environment user in `tenants`; anyone else is refused.
+# A new Environment's deploy needs `--tags base` applied as well. Also: MaxAuthTries 3, no TCP/agent forwarding.
+sshd_admin_users: [ubuntu]
+
 # ufw is ON here (unlike KuuakServer), mirroring the box: 22/80/443 v4+v6 through the stock app profiles.
 # Infomaniak's portal firewall sits in front as well. Docker-published ports bypass ufw: see mailpit_smtp_*.
 firewall_enabled: true
