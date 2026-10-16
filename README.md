@@ -85,6 +85,7 @@ with a filled vault**: the restic env and rclone.conf templates were written wit
   one changed task; a `--check` reports it only when the box's last apply was another commit or uncommitted diff.
 - An interrupted run can write a file without firing its handler; the next run says `changed=0` and the handler never runs. Run the handler's command by hand.
 - No role restarts a Tenant's PM2, dockerd, ssh, journald or Postgres. Those take the pizzerias down or restart every container: do them by hand, outside opening hours.
+  The one exception is unattended-upgrades: a Docker CE update restarts dockerd (so Mailpit) during apt-daily-upgrade (06:00 + up to 60 min).
 - The box has no `python3-psycopg2`, so the `tenant` role talks to Postgres through `psql`: in `--check` a drifted DB shows as a changed "Postgres drift" task; an owner mismatch fails the run on purpose (fix it with a REASSIGN, as in step 8 of the cleanup runbook).
 - Docker-published ports bypass ufw. Mailpit's SMTP (1025, v4) is limited by `DOCKER-USER` (`mailpit_smtp_filter_enabled`,
   unit `mailpit-smtp-filter`, re-applied on every dockerd start) and by the portal firewall.
