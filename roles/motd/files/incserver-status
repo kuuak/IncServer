@@ -72,6 +72,8 @@ declare -A C
 have_cache=0
 if [ -r "$cache" ]; then
 	while IFS= read -r line; do
+		# Some values come from Tenant files (release version): never pass control characters to the terminal
+		line=${line//[[:cntrl:]]/}
 		[[ $line == *=* ]] && C[${line%%=*}]=${line#*=}
 	done <"$cache"
 	have_cache=1

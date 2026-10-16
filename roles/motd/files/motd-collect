@@ -146,7 +146,9 @@ for e in "${envs[@]}"; do
 		# The app version only, from package.json; nothing else is read from the release
 		ver=$(q grep -m1 -oE '"version"[[:space:]]*:[[:space:]]*"[^"]+"' "$home/current/package.json")
 		ver=${ver%\"} ver=${ver##*\"}
-		put "$k.release_version" "$ver"
+		# Written by the Tenant's release: no escape sequences into an admin's terminal, no table-wide string
+		ver=${ver//[^0-9A-Za-z.+_-]/}
+		put "$k.release_version" "${ver:0:20}"
 	else
 		put "$k.deployed" 0
 	fi
