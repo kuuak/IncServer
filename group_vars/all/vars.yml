@@ -51,6 +51,7 @@ mailpit_smtp_allowed_v4:
 #   deploy_key  public half of the Environment's deploy key (private half = GitHub Environment secret SSH_KEY),
 #               installed with `restrict` (no shell tricks: no pty, forwarding, agent)
 #   app_jobs    optional: names from `tenant_app_jobs` this Environment runs (default: all of them)
+#   noindex     optional: true = every response carries `X-Robots-Tag: noindex, nofollow` (staging; default false)
 tenants:
   - name: peperoncini
     label: Pizzeria Peperoncini
@@ -72,6 +73,7 @@ tenants:
         port: 3010
         cert: staging.pizzeria-peperoncini.ch
         basic_auth: false
+        noindex: true
         deploy_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII6lLdsyTxkpfUYI5K1HAZMZkuC59ZIHvN0Qd1q4kzY1 peperoncini-staging-deploy
 
 # Each Environment's authorized_keys = these admin keys (unrestricted, for `ssh <user>@IncServer` from the admin

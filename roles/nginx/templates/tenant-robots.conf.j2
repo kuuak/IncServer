@@ -1,0 +1,10 @@
+# Managed by Ansible (IncServer repo, roles/nginx). X-Robots-Tag value per Tenant Environment host, sent by
+# snippets/tenant-headers.conf. An Environment gets it with `noindex: true` in `tenants`; nginx drops an empty header.
+map $host $tenant_robots_tag {
+	default "";
+{% for t in tenants %}
+{% for e in t.environments if e.noindex | default(false) %}
+	{{ e.host }} "noindex, nofollow";
+{% endfor %}
+{% endfor %}
+}
