@@ -78,7 +78,9 @@ with a filled vault**: the restic env and rclone.conf templates were written wit
 - An interrupted run can write a file without firing its handler; the next run says `changed=0` and the handler never runs. Run the handler's command by hand.
 - No role restarts a Tenant's PM2, dockerd, ssh, journald or Postgres. Those take the pizzerias down or restart every container: do them by hand, outside opening hours.
 - The box has no `python3-psycopg2`, so the `tenant` role talks to Postgres through `psql`: in `--check` a drifted DB shows as a changed "Postgres drift" task; an owner mismatch fails the run on purpose (fix it with a REASSIGN, as in step 8 of the cleanup runbook).
-- Docker-published ports bypass ufw. Mailpit's SMTP (1025, v4) is only limited by the portal firewall until `mailpit_smtp_filter_enabled` is on.
+- Docker-published ports bypass ufw. Mailpit's SMTP (1025, v4) is limited by `DOCKER-USER` (`mailpit_smtp_filter_enabled`,
+  unit `mailpit-smtp-filter`, re-applied on every dockerd start) and by the portal firewall.
+- Docker log options (`daemon.json`, 10 MB x 3) only reach containers created after a dockerd restart: recreate them.
 - Every Environment runs on the system Node 22 (role `nodejs`); there is no per-user nvm. A `~/.nvm` in an Environment's
   home (e.g. copied over with a migrated Tenant) makes `deploy-server.sh` refuse to deploy: remove it, don't source it.
   Nothing else catches it: the Peperoncini PM2 dumps still carry nvm's bin dir in `PATH` (checked 2026-10-14), so

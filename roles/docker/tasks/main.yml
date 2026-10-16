@@ -1,4 +1,6 @@
 - name: Docker daemon.json
   ansible.builtin.copy: { src: daemon.json, dest: /etc/docker/daemon.json, mode: "0644" }
   when: docker_daemon_json_enabled
-  # No handler on purpose: restarting dockerd restarts every container. Do it by hand in a window.
+  # No handler on purpose: restarting dockerd restarts every container. Do it by hand in a window. Log options
+  # are fixed when a container is created, so recreate the containers after that restart (the mailpit role
+  # does it whenever the compose file changes).

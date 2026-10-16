@@ -12,9 +12,10 @@ oom_protected_units: [ssh, systemd-journald, nginx, postgresql@16-main]
 firewall_enabled: true
 firewall_allowed_apps: [OpenSSH, Nginx Full]
 
-# Docker's json-file logs are unbounded without a daemon.json (none on the box today). Turning this on
-# writes the file only; dockerd must be restarted by hand in a window (it restarts every container).
-docker_daemon_json_enabled: false
+# Docker's json-file logs are unbounded without a daemon.json. On: 10 MB x 3 per container (#9). The role
+# writes the file only; dockerd must be restarted by hand (it restarts every container, i.e. Mailpit), and
+# a container keeps the log options it was created with: recreate it after that restart to pick them up.
+docker_daemon_json_enabled: true
 
 # nginx: a catch-all default_server (v4 + v6, 80 + 443) that answers unknown Host headers with 444 and rejects
 # TLS handshakes for unknown or missing SNI. Off = the first vhost loaded (mailhog) answers them (Audit M2, #7).
@@ -25,11 +26,14 @@ nginx_tool_sites: [mailhog.kuuak.ch, netdata.kuuak.ch]
 
 # Mailpit: catches all app mail (delivery-order-app ADR-0003: no mail leaves the box). Stays here.
 mailpit_dir: /var/www/mailhog.kuuak.ch
-mailpit_image: axllent/mailpit          # unpinned on the box; pin (e.g. axllent/mailpit:v1.x.y) in a window
+# Pinned to what ran on 2026-10-16 (Mailpit API version v1.30.7; image digest sha256:d5ecbb06... = Docker Hub's
+# v1.30.7). Bump it by hand: changing it recreates the container (the handler), i.e. a few seconds without SMTP.
+mailpit_image: axllent/mailpit:v1.30.7
 mailpit_state: started                  # started | stopped
-# SMTP 1025 is published on 0.0.0.0 and Docker bypasses ufw; today only the portal firewall limits it to
-# these two hosts. On = DOCKER-USER rules (IPv4; 1025 is not published on v6) that drop everyone else.
-mailpit_smtp_filter_enabled: false
+# SMTP 1025 is published on 0.0.0.0 and Docker bypasses ufw. On = DOCKER-USER rules (IPv4; 1025 is not
+# published on v6) that drop everyone but these two hosts, behind the portal firewall that does the same.
+# Unit mailpit-smtp-filter (WantedBy + PartOf docker.service) rewrites them on every dockerd start/restart.
+mailpit_smtp_filter_enabled: true
 mailpit_smtp_allowed_v4:
   - 83.228.208.186     # IncServer
   - 83.228.217.113     # KuuakServer

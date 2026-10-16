@@ -6,3 +6,4 @@
 
 - name: Apply SMTP filter
   ansible.builtin.systemd: { name: mailpit-smtp-filter.service, state: restarted, daemon_reload: true }
+  ignore_errors: "{{ ansible_check_mode }}"   # the unit does not exist yet during a first dry run

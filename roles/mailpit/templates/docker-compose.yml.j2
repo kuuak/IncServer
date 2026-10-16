@@ -14,7 +14,7 @@ services:
       - ./data:/data
     ports:
       - 127.0.0.1:8025:8025   # UI only via nginx (mailhog.kuuak.ch, basic auth)
-      - 0.0.0.0:1025:1025     # IPv4 only; portal firewall allows IncServer + KuuakServer
+      - 0.0.0.0:1025:1025     # IPv4 only; DOCKER-USER (mailpit-smtp-filter) + portal firewall allow IncServer + KuuakServer
     environment:
       MP_MAX_MESSAGES: 5000
       MP_DATABASE: /data/mailpit.db
