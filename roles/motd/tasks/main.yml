@@ -8,6 +8,12 @@
 - name: Stock MOTD news off (Canonical's ads from motd.ubuntu.com)
   ansible.builtin.lineinfile: { path: /etc/default/motd-news, regexp: '^ENABLED=', line: ENABLED=0 }
 
+# The timer runs 50-motd-news itself: without its exec bit (below) motd-news.service fails (203/EXEC) twice a day.
+# Undo: `systemctl unmask motd-news.timer && systemctl start motd-news.timer`.
+- name: Stock MOTD news timer off
+  ansible.builtin.systemd: { name: motd-news.timer, masked: true, state: stopped }
+  notify: [Clear failed motd-news, Collect status]   # so the screen drops the failed unit now, not at the next collect
+
 - name: Stock MOTD parts on the box
   ansible.builtin.stat: { path: "/etc/update-motd.d/{{ item }}" }
   loop: "{{ motd_stock_parts_off }}"
