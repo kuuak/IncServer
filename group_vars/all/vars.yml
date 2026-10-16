@@ -142,8 +142,9 @@ motd_services:
   - { label: netdata, unit: netdata.service }
 # Column header and cells of the Environment table; a job without a label shows its name.
 motd_job_labels: { check-pending-payments: pay, purge-expired-tokens: purge }
-# Ubuntu's parts in /etc/update-motd.d that lose their exec bit: help links, landscape sysinfo, motd-news ads, the
-# ESM ad and update count (the screen has its own), the 26.04 upgrade notice.
+# Ubuntu's parts in /etc/update-motd.d that lose their exec bit, through package upgrades too (dpkg stat override; taking
+# one off this list does not undo it): help links, landscape sysinfo, motd-news ads, the ESM ad and update count (the
+# screen has its own), the 26.04 upgrade notice.
 motd_stock_parts_off:
   - 10-help-text
   - 50-landscape-sysinfo

@@ -9,14 +9,35 @@
   ansible.builtin.lineinfile: { path: /etc/default/motd-news, regexp: '^ENABLED=', line: ENABLED=0 }
 
 - name: Stock MOTD parts on the box
-  ansible.builtin.find: { paths: /etc/update-motd.d, file_type: any }
+  ansible.builtin.stat: { path: "/etc/update-motd.d/{{ item }}" }
+  loop: "{{ motd_stock_parts_off }}"
   register: motd_stock
 
-# Every run: a package upgrade puts the exec bit back. 50-landscape-sysinfo is a symlink: its target loses the bit.
+# 50-landscape-sysinfo is a symlink (made by landscape-common's postinst): its target loses the bit.
+- name: Stock MOTD part files
+  ansible.builtin.set_fact:
+    motd_stock_off: "{{ motd_stock_off | default([]) + [item.stat.lnk_source | default(item.stat.path)] }}"
+  loop: "{{ motd_stock.results | selectattr('stat.exists') }}"
+  loop_control: { label: "{{ item.item }}" }
+
 - name: Stock MOTD parts off (no exec bit, so run-parts skips them)
-  ansible.builtin.file: { path: "/etc/update-motd.d/{{ item }}", state: file, mode: "0644" }
-  when: ('/etc/update-motd.d/' ~ item) in (motd_stock.files | map(attribute='path'))
-  loop: "{{ motd_stock_parts_off }}"
+  ansible.builtin.file: { path: "{{ item }}", state: file, mode: "0644" }
+  loop: "{{ motd_stock_off | default([]) }}"
+
+- name: Existing dpkg stat overrides
+  ansible.builtin.command: dpkg-statoverride --list
+  check_mode: false
+  changed_when: false
+  failed_when: motd_statoverride.rc > 1   # 1: no override at all
+  register: motd_statoverride
+
+# A package upgrade puts the exec bit back: the landscape wrapper on every landscape-common upgrade, the others when
+# their conffile changes. dpkg keeps an override's mode across upgrades. Undo: `dpkg-statoverride --remove <file>`.
+- name: Stock MOTD parts stay off across package upgrades (dpkg stat override)
+  ansible.builtin.command: dpkg-statoverride --force-statoverride-add --update --add root root 0644 {{ item }}
+  changed_when: true
+  when: ('root root 644 ' ~ item) not in motd_statoverride.stdout_lines
+  loop: "{{ motd_stock_off | default([]) }}"
 
 # --- Status screen ---------------------------------------------------------------------------
 # A malformed entry would only make the screen skip it, i.e. silently never warn: fail the run instead. Unquoted, YAML
@@ -34,7 +55,12 @@
   loop: "{{ motd_opening_hours }}"
 
 - name: Status config (Environments, services, opening hours; no secrets)
-  ansible.builtin.template: { src: incserver-status.conf.j2, dest: /etc/incserver-status.conf, mode: "0644" }
+  ansible.builtin.template:
+    src: incserver-status.conf.j2
+    dest: /etc/incserver-status.conf
+    owner: root
+    group: sudo   # lists every Environment's user, home and host: the screen's readers only
+    mode: "0640"
   notify: Collect status
 
 - name: Collector script
@@ -61,8 +87,8 @@
 
 # --- Apply marker ----------------------------------------------------------------------------
 # /etc/incserver-release: the controller checkout of the last apply (any role: tagged always), for the screen's
-# second line. Rewritten only when the commit or the uncommitted diff changes, so re-applies stay changed=0; --check
-# shows it changed whenever the box last saw another commit.
+# second line. Rewritten on every apply (its time, user and tags are the latest), so an apply always reports it
+# changed; --check reports it only when the box's last apply was another commit or diff.
 - name: Controller checkout
   ansible.builtin.shell: |
     set -o pipefail
@@ -90,6 +116,14 @@
   ansible.builtin.slurp: { src: /etc/incserver-release }
   register: motd_release_box
   failed_when: false
+  when: ansible_check_mode
+  tags: [always]
+
+# The real marker would always show changed in a dry run (its time): report only a commit or diff the box hasn't seen.
+- name: Apply marker (dry run, commit or diff not yet on the box)
+  ansible.builtin.debug: { msg: "{{ motd_release_key | trim }}" }
+  changed_when: true
+  when: ansible_check_mode and (motd_release_key | trim) not in (motd_release_box.content | default('') | b64decode)
   tags: [always]
 
 - name: Apply marker (commit, diff hash or "no", time, controller user, tags)
@@ -102,5 +136,5 @@
       applied={{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}
       by={{ lookup('ansible.builtin.env', 'USER') }}
       tags={{ ansible_run_tags | join(',') }}
-  when: (motd_release_key | trim) not in (motd_release_box.content | default('') | b64decode)
+  when: not ansible_check_mode
   tags: [always]
