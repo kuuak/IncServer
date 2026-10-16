@@ -99,6 +99,8 @@ for h in "${hours[@]}"; do
 	hit=0
 	for d in ${days//,/ }; do
 		a=$(daynum "${d%-*}") b=$(daynum "${d#*-}")
+		# Not a day name: skip it (as "Mon-Foo" it would read as a wrap-around, open every day)
+		((a && b)) || continue
 		if ((a <= b)); then ((dow >= a && dow <= b)) && hit=1
 		else ((dow >= a || dow <= b)) && hit=1; fi
 	done

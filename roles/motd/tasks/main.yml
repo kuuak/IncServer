@@ -19,6 +19,20 @@
   loop: "{{ motd_stock_parts_off }}"
 
 # --- Status screen ---------------------------------------------------------------------------
+# A malformed entry would only make the screen skip it, i.e. silently never warn: fail the run instead. Unquoted, YAML
+# reads 11:00 as the number 660.
+- name: Opening hours are well-formed (days Mon..Sun, quoted "HH:MM", same day)
+  ansible.builtin.assert:
+    that:
+      - item.days is string and item.days is match('^' ~ motd_day_re ~ '(,' ~ motd_day_re ~ ')*$')
+      - item.from is string and item.from is match('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+      - item.to is string and item.to is match('^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$')
+      - item.to > item.from
+    fail_msg: "motd_opening_hours: {{ item }}"
+    quiet: true
+  vars: { motd_day_re: '(Mon|Tue|Wed|Thu|Fri|Sat|Sun)(-(Mon|Tue|Wed|Thu|Fri|Sat|Sun))?' }
+  loop: "{{ motd_opening_hours }}"
+
 - name: Status config (Environments, services, opening hours; no secrets)
   ansible.builtin.template: { src: incserver-status.conf.j2, dest: /etc/incserver-status.conf, mode: "0644" }
   notify: Collect status
