@@ -30,6 +30,8 @@ server {
 
 	root /var/www/{{ item.0.domain }}/{{ e.name }}/current/public;
 
+	include /etc/nginx/snippets/tenant-headers.conf;
+
 	# Include shared location blocks
 	include /etc/nginx/sites-available/app-locations.conf;
 }

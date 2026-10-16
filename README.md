@@ -11,7 +11,7 @@ Vocabulary (Tenant, Environment, ...): [CONTEXT.md](CONTEXT.md).
 |---|---|---|---|
 | Tenant Environments (Next.js under PM2, one Unix user each) | `/var/www/<domain>/<env>`, `pm2-<user>.service` | tenant domains → port map | `tenant` (+ `nginx` port map) |
 | Node 22 + PM2 for the Environments | host (NodeSource apt) | – | `nodejs` |
-| App jobs (`POST /api/cron/*`: payment check every 10 min, token purge daily 03:15) per Environment | `app-<user>-<job>.timer` | – (localhost) | `tenant` |
+| App jobs (`POST /api/cron/*`: payment check every 10 min, token purge daily 03:15) per Environment | `app-<user>-<job>.timer` | – (localhost; nginx answers `/api/cron/*` with 404) | `tenant` |
 | PM2 log rotation per Environment (`<home>/.pm2/logs/*.log`, `pm2.log`): daily, `copytruncate`, 14 days kept (gzipped but the newest) | `/etc/logrotate.d/pm2-tenants` (logrotate.timer, 00:00–01:00) | – | `tenant` |
 | PostgreSQL 16 (one role + DB per Environment), Redis | host | localhost only | `tenant` (roles/DBs) |
 | nginx + certbot | host | 80, 443 (v4 + v6) | `nginx` |
@@ -55,6 +55,14 @@ Every Environment is one entry under `tenants:` in `group_vars/all/vars.yml`. On
 
 The production vhost of Peperoncini is shipped verbatim (`roles/tenant/files/vhosts/`, legacy redirects);
 new Environments use `roles/tenant/templates/vhost.conf.j2`.
+
+Every Tenant HTTPS server includes `/etc/nginx/snippets/tenant-headers.conf` (role `nginx`): HSTS
+(`max-age=31536000`, no `preload`), `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`,
+all `always`; `app-locations.conf` includes it again in `/uploads/` (its own `add_header` drops the server's). A new vhost,
+template or verbatim, includes it in each `listen 443` server. Per-Environment option on a `tenants` entry:
+
+- `noindex: true`: every response also carries `X-Robots-Tag: noindex, nofollow` (a host → value map in
+  `conf.d/tenant-robots.conf`, rendered by the `nginx` role). Set it on staging Environments, never on production.
 
 ## Secrets
 

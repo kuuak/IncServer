@@ -8,6 +8,21 @@
   ansible.builtin.template: { src: app-ports-map.conf.j2, dest: /etc/nginx/conf.d/app-ports-map.conf, mode: "0644" }
   notify: Reload nginx
 
+# Ships with nginx-common. Asserted so that --check shows it missing (copy's check mode does not).
+- name: Snippets directory
+  ansible.builtin.file: { path: /etc/nginx/snippets, state: directory, mode: "0755" }
+
+# Host -> X-Robots-Tag value, from each Environment's `noindex`. Used by tenant-headers.conf.
+- name: Tenant X-Robots-Tag map
+  ansible.builtin.template: { src: tenant-robots.conf.j2, dest: /etc/nginx/conf.d/tenant-robots.conf, mode: "0644" }
+  notify: Reload nginx
+
+# Security headers of every Tenant vhost, included by the vhosts and by app-locations.conf's /uploads/.
+# This and the map come before app-locations.conf, which uses them.
+- name: Tenant response headers
+  ansible.builtin.copy: { src: tenant-headers.conf, dest: /etc/nginx/snippets/tenant-headers.conf, mode: "0644" }
+  notify: Reload nginx
+
 # Lives in sites-available (not enabled; included by every tenant vhost). Owner left as found (ubuntu).
 - name: Shared tenant locations
   ansible.builtin.copy: { src: app-locations.conf, dest: /etc/nginx/sites-available/app-locations.conf, mode: "0644" }
