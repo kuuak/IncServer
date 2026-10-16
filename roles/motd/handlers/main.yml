@@ -3,3 +3,4 @@
 
 - name: Collect status
   ansible.builtin.systemd: { name: motd-collect.service, state: started }
+  ignore_errors: "{{ ansible_check_mode }}"   # the unit does not exist yet during a first dry run
