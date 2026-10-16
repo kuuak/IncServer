@@ -20,6 +20,7 @@ Vocabulary (Tenant, Environment, ...): [CONTEXT.md](CONTEXT.md).
 | restic → Swiss Backup cluster 04, nightly 00:00 | host (systemd) | – | `backup` |
 | Weekly reboot window, Tue 04:30, only if required | host (systemd) | – | `base` |
 | healthchecks.io pings (email) for restic-backup, certbot, unattended-upgrades, production app jobs | systemd drop-ins + `/usr/local/sbin/hc-ping` | – | `healthchecks` (wired once the URLs are in the vault) |
+| Login status screen for admins (`incserver-status`, at login for `sudo` members; replaces Ubuntu's help links, ads and sysinfo) | `/usr/local/bin/incserver-status`, cache by `motd-collect.timer` (5 min) in `/run/incserver-status` | – | `motd` |
 
 ## Usage
 
@@ -33,6 +34,8 @@ ansible-playbook site.yml --tags nginx        # apply one role
 ```
 
 SSH goes through the `IncServer` entry in `~/.ssh/config` (user `ubuntu`, passwordless sudo).
+On the box, `incserver-status` answers "is anything wrong, is it safe to touch things?" (also shown at login);
+`sudo systemctl start motd-collect` refreshes it. Every apply records the controller's commit in `/etc/incserver-release`.
 
 Written on 2026-09-30 against the box as cleaned in `docs/runbooks/2026-09-cleanup.md`. The templates
 render byte-identical to the live files; the goal is a full `--check` reporting `changed=0`.
@@ -70,6 +73,8 @@ with a filled vault**: the restic env and rclone.conf templates were written wit
 ## Gotchas
 
 - From a non-TTY (scripts, agents) run Ansible with `< /dev/null` and output redirected to a file, or it aborts with "requires blocking IO".
+- `/etc/incserver-release` (role `motd`, every apply whatever the tags) is rewritten only when the commit or the uncommitted diff
+  changes: a `--check` from another commit than the box's last apply shows it as the one changed task.
 - An interrupted run can write a file without firing its handler; the next run says `changed=0` and the handler never runs. Run the handler's command by hand.
 - No role restarts a Tenant's PM2, dockerd, ssh, journald or Postgres. Those take the pizzerias down or restart every container: do them by hand, outside opening hours.
 - The box has no `python3-psycopg2`, so the `tenant` role talks to Postgres through `psql`: in `--check` a drifted DB shows as a changed "Postgres drift" task; an owner mismatch fails the run on purpose (fix it with a REASSIGN, as in step 8 of the cleanup runbook).

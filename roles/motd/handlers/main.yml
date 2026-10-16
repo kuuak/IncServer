@@ -1,0 +1,5 @@
+- name: Reload systemd
+  ansible.builtin.systemd: { daemon_reload: true }
+
+- name: Collect status
+  ansible.builtin.systemd: { name: motd-collect.service, state: started }

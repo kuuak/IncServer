@@ -1,0 +1,92 @@
+# Login status screen for admins, in place of Ubuntu's help links, ads and sysinfo: `incserver-status`, shown at login
+# to members of `sudo` (Tenant users never see it). The slow checks run every 5 min (motd-collect.timer, as root) into
+# /run/incserver-status; the login only reads that cache and a few live values. Nothing here is restarted.
+
+# --- Stock MOTD parts ------------------------------------------------------------------------
+# Kept: 00-header, 85-fwupd, 92-unattended-upgrades, 95-hwe-eol, 97-overlayroot, 98-*: short, and still shown
+# to everyone when the status screen is not (Tenant users, a broken cache).
+- name: Stock MOTD news off (Canonical's ads from motd.ubuntu.com)
+  ansible.builtin.lineinfile: { path: /etc/default/motd-news, regexp: '^ENABLED=', line: ENABLED=0 }
+
+- name: Stock MOTD parts on the box
+  ansible.builtin.find: { paths: /etc/update-motd.d, file_type: any }
+  register: motd_stock
+
+# Every run: a package upgrade puts the exec bit back. 50-landscape-sysinfo is a symlink: its target loses the bit.
+- name: Stock MOTD parts off (no exec bit, so run-parts skips them)
+  ansible.builtin.file: { path: "/etc/update-motd.d/{{ item }}", state: file, mode: "0644" }
+  when: ('/etc/update-motd.d/' ~ item) in (motd_stock.files | map(attribute='path'))
+  loop: "{{ motd_stock_parts_off }}"
+
+# --- Status screen ---------------------------------------------------------------------------
+- name: Status config (Environments, services, opening hours; no secrets)
+  ansible.builtin.template: { src: incserver-status.conf.j2, dest: /etc/incserver-status.conf, mode: "0644" }
+  notify: Collect status
+
+- name: Collector script
+  ansible.builtin.copy: { src: motd-collect, dest: /usr/local/sbin/motd-collect, mode: "0755" }
+  notify: Collect status
+
+- name: Collector units
+  ansible.builtin.copy: { src: "{{ item }}", dest: "/etc/systemd/system/{{ item }}", mode: "0644" }
+  loop: [motd-collect.service, motd-collect.timer]
+  notify: [Reload systemd, Collect status]
+
+- name: Status command
+  ansible.builtin.copy: { src: incserver-status, dest: /usr/local/bin/incserver-status, mode: "0755" }
+
+- name: Status at login (members of sudo, interactive shells)
+  ansible.builtin.copy: { src: zz-incserver-status.sh, dest: /etc/profile.d/zz-incserver-status.sh, mode: "0644" }
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable collector timer
+  ansible.builtin.systemd: { name: motd-collect.timer, enabled: true, state: started }
+  ignore_errors: "{{ ansible_check_mode }}"   # the unit does not exist yet during a first dry run
+
+# --- Apply marker ----------------------------------------------------------------------------
+# /etc/incserver-release: the controller checkout of the last apply (any role: tagged always), for the screen's
+# second line. Rewritten only when the commit or the uncommitted diff changes, so re-applies stay changed=0; --check
+# shows it changed whenever the box last saw another commit.
+- name: Controller checkout
+  ansible.builtin.shell: |
+    set -o pipefail
+    git rev-parse --short HEAD 2>/dev/null || echo unknown
+    git remote get-url origin 2>/dev/null || echo unknown
+    if git diff --quiet HEAD 2>/dev/null; then echo no; else git diff HEAD | git hash-object --stdin | cut -c1-7; fi
+  args: { chdir: "{{ playbook_dir }}", executable: /bin/bash }
+  delegate_to: localhost
+  become: false
+  run_once: true
+  check_mode: false
+  changed_when: false
+  register: motd_git
+  tags: [always]
+
+- name: Commit and diff to record
+  ansible.builtin.set_fact:
+    motd_release_key: |
+      repo={{ motd_git.stdout_lines[1] | regex_replace('^.*github\.com[:/]', '') | regex_replace('\.git$', '') }}
+      commit={{ motd_git.stdout_lines[0] }}
+      dirty={{ motd_git.stdout_lines[2] }}
+  tags: [always]
+
+- name: Recorded apply
+  ansible.builtin.slurp: { src: /etc/incserver-release }
+  register: motd_release_box
+  failed_when: false
+  tags: [always]
+
+- name: Apply marker (commit, diff hash or "no", time, controller user, tags)
+  ansible.builtin.copy:
+    dest: /etc/incserver-release
+    mode: "0644"
+    content: |
+      # Managed by Ansible (IncServer repo, roles/motd). The last apply's controller checkout; read by incserver-status.
+      {{ motd_release_key | trim }}
+      applied={{ now(fmt='%Y-%m-%dT%H:%M:%S%z') }}
+      by={{ lookup('ansible.builtin.env', 'USER') }}
+      tags={{ ansible_run_tags | join(',') }}
+  when: (motd_release_key | trim) not in (motd_release_box.content | default('') | b64decode)
+  tags: [always]

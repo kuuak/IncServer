@@ -127,3 +127,33 @@ healthchecks_jobs:
   - key: peperoncini-purge-expired-tokens
     unit: app-peperoncini-purge-expired-tokens.service
     url: "{{ vault_healthcheck_app_job_urls['peperoncini-purge-expired-tokens'] | default('') }}"
+
+# --- Login status screen (role motd) -------------------------------------------------------
+# `incserver-status`, shown at login to members of `sudo` only. Environments come from `tenants`, app jobs from
+# `tenant_app_jobs`, the Web line from `nginx_tool_sites`. Refresh the cache: `sudo systemctl start motd-collect`.
+motd_title: IncServer · PRODUCTION · delivery-order-app
+motd_backup_label: Swiss Backup c04
+motd_services:
+  - { label: nginx, unit: nginx.service }
+  - { label: postgres, unit: postgresql@16-main.service }
+  - { label: redis, unit: redis-server.service }
+  - { label: docker, unit: docker.service }
+  - { label: mailpit, container: mailpit }    # compose, no unit (role mailpit)
+  - { label: netdata, unit: netdata.service }
+# Column header and cells of the Environment table; a job without a label shows its name.
+motd_job_labels: { check-pending-payments: pay, purge-expired-tokens: purge }
+# Ubuntu's parts in /etc/update-motd.d that lose their exec bit: help links, landscape sysinfo, motd-news ads, the
+# ESM ad and update count (the screen has its own), the 26.04 upgrade notice.
+motd_stock_parts_off:
+  - 10-help-text
+  - 50-landscape-sysinfo
+  - 50-motd-news
+  - 90-updates-available
+  - 91-contract-ua-esm-status
+  - 91-release-upgrade
+# While a pizzeria is open (Europe/Zurich), the screen warns: no PM2 / Postgres / Docker / ssh / journald restarts.
+# Not given yet: empty, so the line never shows. days: Mon..Sun, a range (Tue-Sun) or a list (Fri,Sat);
+# `to` later than `from`, same day (no window past midnight).
+motd_opening_hours: []
+#  - { days: Tue-Sun, from: "11:00", to: "14:00" }
+#  - { days: "Fri,Sat", from: "17:30", to: "23:00" }

@@ -1,0 +1,337 @@
+#!/bin/bash
+# Managed by Ansible (IncServer repo, roles/motd). Status screen: is anything wrong, is it safe to touch things?
+# Shown at login to members of `sudo` (/etc/profile.d/zz-incserver-status.sh); run it any time.
+# Fast on purpose: reads the cache motd-collect writes every 5 min (/run/incserver-status/status, root:sudo) plus a
+# few live values (uptime, load, memory, disk, sessions). Refresh: sudo systemctl start motd-collect.service
+#   incserver-status [--no-color]        (NO_COLOR is honoured as well)
+#   MOTD_CACHE_DIR, INCSERVER_STATUS_CONF, INCSERVER_RELEASE: other paths, for a test run.
+set -u
+shopt -s extglob
+export LC_ALL=C.UTF-8
+conf=${INCSERVER_STATUS_CONF:-/etc/incserver-status.conf}
+cache=${MOTD_CACHE_DIR:-/run/incserver-status}/status
+release=${INCSERVER_RELEASE:-/etc/incserver-release}
+stale_after=900   # s; motd-collect runs every 300
+
+color=1
+[ -t 1 ] && [ "${TERM:-dumb}" != dumb ] && [ -z "${NO_COLOR:-}" ] || color=0
+case ${1:-} in
+--no-color) color=0 ;;
+-h | --help) sed -n '2,7s/^# \{0,1\}//p' "$0"; exit 0 ;;
+esac
+
+if [ $color = 1 ]; then
+	R=$'\e[31m' Y=$'\e[33m' G=$'\e[32m' D=$'\e[2m' B=$'\e[1m' N=$'\e[0m'
+else
+	R='' Y='' G='' D='' B='' N=''
+fi
+OK="${G}✓${N}" BAD="${R}✗${N}"
+
+# --- Helpers -------------------------------------------------------------------------------------------
+now=$(date +%s)
+today=$(date +%F)
+vlen() { local s=${1//$'\e['*([0-9;])m/}; printf '%s' "${#s}"; }
+# pad <text> <width>: left-aligned to a visible width (colour codes do not count)
+pad() { local n; n=$(($2 - $(vlen "$1"))); printf '%s%*s' "$1" $((n > 0 ? n : 0)) ''; }
+# hm <epoch>: 13:50 today, else 15 Oct 13:50; "–" when unknown
+hm() {
+	[[ ${1:-} =~ ^[0-9]+$ ]] || { printf '–'; return; }
+	if [ "$(date -d "@$1" +%F)" = "$today" ]; then date -d "@$1" +%H:%M; else date -d "@$1" '+%d %b %H:%M'; fi
+}
+day() { [[ ${1:-} =~ ^[0-9]+$ ]] && date -d "@$1" '+%d %b' || printf '–'; }
+ago() {
+	[[ ${1:-} =~ ^[0-9]+$ ]] || { printf '?'; return; }
+	local s=$((now - $1))
+	if ((s < 60)); then printf 'just now'
+	elif ((s < 3600)); then printf '%dm ago' $((s / 60))
+	elif ((s < 172800)); then printf '%dh ago' $((s / 3600))
+	else printf '%dd ago' $((s / 86400)); fi
+}
+gib() { awk -v b="$1" 'BEGIN { g = b / 1073741824; printf (g < 10 ? "%.1f" : "%.0f"), g }'; }
+
+warnings=()
+warn() { warnings+=("${Y}⚠${N}  $*"); }
+alarm() { warnings+=("${R}⚠${N}  $*"); }
+
+# --- Inputs: config (from group_vars), the collector's cache, the last Ansible apply ---------------------
+title='IncServer' backup_label='' web='' envs=() services=() hours=()
+declare -A label
+while read -r kind rest; do
+	case $kind in
+	title) title=$rest ;;
+	backup) backup_label=$rest ;;
+	web) web=$rest ;;
+	env) envs+=("$rest") ;;
+	service) services+=("$rest") ;;
+	job) label[${rest%% *}]=${rest#* } ;;
+	open) hours+=("$rest") ;;
+	esac
+done < <(grep -v '^#' "$conf" 2>/dev/null)
+
+declare -A C
+have_cache=0
+if [ -r "$cache" ]; then
+	while IFS= read -r line; do
+		[[ $line == *=* ]] && C[${line%%=*}]=${line#*=}
+	done <"$cache"
+	have_cache=1
+fi
+c() { printf '%s' "${C[$1]:-}"; }
+
+declare -A REL
+if [ -r "$release" ]; then
+	while IFS= read -r line; do
+		[[ $line == [a-z]*=* ]] && REL[${line%%=*}]=${line#*=}
+	done <"$release"
+fi
+
+# --- Warnings ------------------------------------------------------------------------------------------
+# Opening hours: "open <days> <from> <to>", days Mon..Sun as a range (Tue-Sun) or a list (Fri,Sat), Europe/Zurich
+read -r dow hh mm < <(TZ=Europe/Zurich date '+%u %H %M')
+minute=$((10#$hh * 60 + 10#$mm))
+daynum() { case $1 in Mon) echo 1 ;; Tue) echo 2 ;; Wed) echo 3 ;; Thu) echo 4 ;; Fri) echo 5 ;; Sat) echo 6 ;; Sun) echo 7 ;; *) echo 0 ;; esac; }
+open_until=''
+for h in "${hours[@]}"; do
+	read -r days from to <<<"$h"
+	hit=0
+	for d in ${days//,/ }; do
+		a=$(daynum "${d%-*}") b=$(daynum "${d#*-}")
+		if ((a <= b)); then ((dow >= a && dow <= b)) && hit=1
+		else ((dow >= a || dow <= b)) && hit=1; fi
+	done
+	f=$((10#${from%:*} * 60 + 10#${from#*:})) t=$((10#${to%:*} * 60 + 10#${to#*:}))
+	((hit && minute >= f && minute < t)) && open_until=$to
+done
+[ -n "$open_until" ] && warn "${B}Pizzerias open now${N} (until $open_until): no PM2 / Postgres / Docker / ssh / journald restarts"
+
+collected=$(c collected)
+if [ $have_cache = 0 ]; then
+	if [ -e "$cache" ]; then alarm "Status cache not readable (members of sudo only): $cache"
+	else alarm "No status cache yet: sudo systemctl start motd-collect.service"; fi
+elif ! [[ $collected =~ ^[0-9]+$ ]] || ((now - collected > stale_after)); then
+	alarm "Status cache is stale (collected $(hm "$collected"), $(ago "$collected")): systemctl status motd-collect.timer"
+fi
+
+if [ $have_cache = 1 ]; then
+	n=$(c failed_count)
+	[[ $n =~ ^[1-9] ]] && alarm "$n failed unit(s): $(c failed_units)  ${D}(systemctl --failed)${N}"
+
+	for s in "${services[@]}"; do
+		read -r l _ <<<"$s"
+		st=$(c "svc.$l")
+		case $st in active | running | running/healthy | '') ;; *) alarm "$l is $st" ;; esac
+	done
+
+	nvm_homes='' nvm_dumps=''
+	for e in "${envs[@]}"; do
+		read -r tn en user home _ <<<"$e"
+		k=env.$user
+		if [ "$(c "$k.deployed")" = 1 ]; then
+			[ "$(c "$k.pm2")" = active ] || alarm "$tn $en: pm2-$user.service is $(c "$k.pm2")"
+			code=$(c "$k.http")
+			[[ $code =~ ^[23] ]] || alarm "$tn $en: HTTP ${code:-–} on 127.0.0.1:$(c "$k.port")"
+		fi
+		[ "$(c "$k.node_nvm")" = 1 ] && alarm "$tn $en runs on nvm's Node $(c "$k.node"), not the system Node"
+		for key in "${!C[@]}"; do
+			[[ $key == "$k.job."* && $key != *.time ]] || continue
+			job=${key#"$k.job."} st=${C[$key]}
+			case $st in
+			failed) alarm "$tn $en: app job $job failed at $(hm "$(c "$key.time")")  ${D}(journalctl -u app-$user-$job)${N}" ;;
+			missing | timer-*) alarm "$tn $en: app job $job: ${st/timer-/timer }" ;;
+			esac
+		done
+		[ "$(c "$k.nvm_home")" = 1 ] && nvm_homes+="$home/.nvm "
+		[ "$(c "$k.nvm_dump")" = 1 ] && nvm_dumps+="${nvm_dumps:+, }$user"
+	done
+	[ -n "$nvm_homes" ] && alarm "${nvm_homes% } exists, so deploy-server.sh will refuse to deploy"
+	[ -n "$nvm_dumps" ] && warn "nvm in PM2 dump PATH: $nvm_dumps (harmless while no ~/.nvm, README)"
+
+	br=$(c backup_result) bend=$(c backup_end)
+	if [ "$(c backup_timer)" != active ]; then alarm "restic-backup.timer is $(c backup_timer)"
+	elif [ -n "$br" ] && [ "$br" != success ]; then alarm "Backup failed at $(hm "$bend") ($br)  ${D}(journalctl -u restic-backup)${N}"
+	elif [[ $bend =~ ^[0-9]+$ ]] && ((now - bend > 93600)); then warn "Last backup $(ago "$bend")"
+	fi
+
+	cs=$(c cert_soonest)
+	[ -n "$(c cert_expired)" ] && alarm "Certificate expired: $(c cert_expired)"
+	if [[ $cs =~ ^[0-9]+$ ]] && ((cs > now)); then
+		cd=$(((cs - now) / 86400))
+		# certbot renews at 30 days left
+		((cd < 7)) && alarm "Certificate $(c cert_soonest_name) expires in ${cd}d"
+		((cd >= 7 && cd < 20)) && warn "Certificate $(c cert_soonest_name) expires in ${cd}d (certbot should have renewed at 30d)"
+	fi
+	[ "$(c certbot_timer)" = active ] || alarm "certbot.timer is $(c certbot_timer)"
+
+	rs=$(c reboot_since)
+	if [ -n "$rs" ]; then
+		pk=$(c reboot_pkgs) pk=${pk% } pk=${pk//linux-image-/linux-image } pk=${pk//-generic/} pk=${pk// /, }
+		pk=${pk//linux-image, /linux-image }
+		if [ "$(c reboot_timer)" = active ]; then
+			warn "Reboot pending since $(day "$rs") (${pk:-?}) → auto $(date -d "@$(c reboot_next)" '+%a %d %b %H:%M' 2>/dev/null || printf '?')"
+		else
+			alarm "Reboot pending since $(day "$rs") (${pk:-?}) and reboot-if-required.timer is $(c reboot_timer)"
+		fi
+	fi
+fi
+
+# unattended-upgrades: ok = last run succeeded and touched upgrade-stamp, and that was less than 36 h ago
+uu_ok=0
+ust=$(c uu_stamp) uus=$(c uu_start)
+[ "$(c uu_result)" = success ] && [[ $ust =~ ^[0-9]+$ ]] && ((ust >= ${uus:-0} && now - ust < 129600)) && uu_ok=1
+uu="unattended-upgrades last ran $(hm "${ust:-$uus}") $([ $uu_ok = 1 ] && printf '%s' "$OK" || printf '%s' "$BAD")"
+sec=$(c security)
+if [ $have_cache = 1 ]; then
+	if [[ $sec =~ ^[1-9] ]]; then warn "$sec security update(s) pending · $uu"
+	elif [ $uu_ok = 0 ]; then warn "$uu"; fi
+fi
+
+# --- Live values ------------------------------------------------------------------------------------
+read -r up _ </proc/uptime
+up=${up%.*}
+if ((up >= 86400)); then upt="$((up / 86400))d"; elif ((up >= 3600)); then upt="$((up / 3600))h"; else upt="$((up / 60))m"; fi
+read -r l1 l5 l15 _ </proc/loadavg
+declare -A M
+while read -r k v _; do M[${k%:}]=$v; done </proc/meminfo
+mem="$(gib $(((${M[MemTotal]:-0} - ${M[MemAvailable]:-0}) * 1024)))/$(gib $((${M[MemTotal]:-0} * 1024)))G"
+swapk=$((${M[SwapTotal]:-0} - ${M[SwapFree]:-0}))
+if ((swapk < 102400)); then swap=0; else swap="$(gib $((swapk * 1024)))G"; fi
+read -r _ dsize dused _ dpct _ < <(df -P -B1 / 2>/dev/null | tail -n 1)
+disk="$(gib "${dused:-0}")/$(gib "${dsize:-0}")G (${dpct:-?})"
+dp=${dpct%\%}
+[[ $dp =~ ^[0-9]+$ ]] && ((dp >= 85)) && warn "/ is ${dpct} full"
+
+you=${SSH_CONNECTION:-} you=${you%% *}
+sessions=$(who 2>/dev/null | grep -c .)
+self=0
+[ -n "$you" ] && [ -t 0 ] && self=1
+others=$((sessions - self))
+((others < 0)) && others=0
+
+# --- Screen -------------------------------------------------------------------------------------------
+W=84
+right=$(date '+%a %d %b %H:%M %Z')
+gap=$((W - 1 - $(vlen "$title") - ${#right}))
+printf ' %s%*s%s\n' "$B$title$N" $((gap > 1 ? gap : 1)) '' "$D$right$N"
+if [ -n "${REL[commit]:-}" ]; then
+	at=$(date -d "${REL[applied]:-}" '+%d %b %H:%M' 2>/dev/null || printf '?')
+	dirty=''
+	[ "${REL[dirty]:-no}" != no ] && dirty="${Y}+dirty${N}"
+	tags=''
+	[ "${REL[tags]:-all}" != all ] && tags=" (--tags ${REL[tags]})"
+	printf ' %sManaged by Ansible — %s @ %s%s%s, applied %s%s — don'\''t edit here%s\n' \
+		"$D" "${REL[repo]:-?}" "$N" "${REL[commit]}$dirty" "$D" "$at" "$tags" "$N"
+else
+	printf ' %sManaged by Ansible (kuuak/IncServer), no apply recorded yet — don'\''t edit here%s\n' "$D" "$N"
+fi
+printf ' %s%s%s\n' "$D" "$(printf '%*s' $((W - 1)) '' | sed 's/ /─/g')" "$N"
+
+if ((${#warnings[@]})); then
+	printf ' %s\n' "${warnings[@]}"
+else
+	printf ' %s  %sNothing needs attention%s\n' "$OK" "$G" "$N"
+fi
+echo
+
+row() { printf ' %s%s\n' "$(pad "$1" 10)" "$2"; }
+dot() { case $1 in active | running | running/healthy) printf '%s●%s' "$G" "$N" ;; '') printf '%s–%s' "$D" "$N" ;; *) printf '%s✗%s' "$R" "$N" ;; esac; }
+dash() { printf '%s' "${1:-–}"; }
+
+row System "up $upt · load $l1 $l5 $l15 · mem $mem · swap $swap · / $disk"
+if [ $have_cache = 1 ]; then
+	row Updates "$(dash "$(c updates)") pending, $(dash "$sec") security · $uu"
+	if [ "$(c backup_state)" = activating ]; then bk="${Y}running${N} since $(hm "$(c backup_start)")"
+	elif [ "$(c backup_result)" = success ]; then bk="$OK $(hm "$(c backup_end)") ($(ago "$(c backup_end)"))"
+	elif [ -n "$(c backup_result)" ]; then bk="$BAD $(hm "$(c backup_end)") ($(c backup_result))"
+	else bk='–'; fi
+	row Backup "restic $bk${backup_label:+ · $D$backup_label$N}"
+	if [[ $cs =~ ^[0-9]+$ ]]; then crt="soonest: $(c cert_soonest_name) in $(((cs - now) / 86400))d"; else crt='soonest: –'; fi
+	cb=$([ "$(c certbot_timer)" = active ] && [ "$(c certbot_result)" = success ] && printf '%s' "$OK" || printf '%s' "$BAD")
+	row Certs "$crt · certbot.timer $cb"
+	sv=''
+	for s in "${services[@]}"; do
+		read -r l _ <<<"$s"
+		sv+="$l $(dot "$(c "svc.$l")") "
+	done
+	fc=$(c failed_count)
+	row Services "$sv  failed units: $([[ ${fc:-0} =~ ^0?$ ]] && printf '%s' "${fc:-–}" || printf '%s' "$R$fc$N")"
+fi
+echo
+
+# Environment table
+tw=0 ew=0
+for e in "${envs[@]}"; do
+	read -r tn en _ <<<"$e"
+	((${#tn} > tw)) && tw=${#tn}
+	((${#en} > ew)) && ew=${#en}
+done
+nw=$((tw + 2 + ew))
+((nw < 11)) && nw=11
+jobhdr=''
+for e in "${envs[@]}"; do
+	read -r _ _ _ _ _ jobs <<<"$e"
+	for j in ${jobs//,/ }; do
+		[ "$j" = - ] && continue
+		case " $jobhdr " in *" ${label[$j]:-$j} "*) ;; *) jobhdr+="${label[$j]:-$j} " ;; esac
+	done
+done
+jobhdr=${jobhdr% }
+any_stale=0
+if ((${#envs[@]})); then
+	printf ' %s%s  %s %s %s %s %s%s\n' "$D" "$(pad Environment "$nw")" "$(pad PM2 6)" "$(pad HTTP 5)" "$(pad Node 7)" \
+		"$(pad Release 19)" "Jobs${jobhdr:+ (${jobhdr// / · })}" "$N"
+	for e in "${envs[@]}"; do
+		read -r tn en user _ _ jobs <<<"$e"
+		k=env.$user dep=$(c "$k.deployed")
+		case $(c "$k.pm2") in
+		active) pm="${G}●${N} on" ;;
+		activating | reloading) pm="${Y}●${N} …" ;;
+		failed) pm="${R}✗${N} fail" ;;
+		'') pm='–' ;;
+		*) [ "$dep" = 1 ] && pm="${R}○${N} off" || pm="${D}○ off${N}" ;;
+		esac
+		code=$(c "$k.http")
+		if [ "$dep" != 1 ] || [ -z "$code" ]; then ht='–'; elif [[ $code =~ ^[23] ]]; then ht=$code; else ht="$R$code$N"; fi
+		nd=$(c "$k.node") nd=${nd%.*}
+		if [ -z "$nd" ]; then nd='–'
+		elif [ "$(c "$k.node_nvm")" = 1 ]; then nd="$R$nd nvm$N"
+		elif [ "$(c "$k.node_stale")" = 1 ]; then nd="$Y$nd↻$N" any_stale=1; fi
+		if [ "$dep" = 1 ]; then
+			v=$(c "$k.release_version")
+			rl="${v:+$v }$(hm "$(c "$k.release_time")")"
+		elif [ "$dep" = 0 ]; then rl="${D}not deployed${N}"
+		else rl='–'; fi
+		jb='' allskip=1 n=0
+		for j in ${jobs//,/ }; do
+			[ "$j" = - ] && continue
+			st=$(c "$k.job.$j") t=$(c "$k.job.$j.time") n=$((n + 1))
+			[ "$st" = skipped ] || allskip=0
+			case $st in
+			ok) cell="$OK $(hm "$t")" ;;
+			failed) cell="$BAD $R$(hm "$t")$N" ;;
+			running) cell="${Y}…${N} $(hm "$t")" ;;
+			skipped) cell="${D}– skip${N}" ;;
+			never) cell="${D}– never${N}" ;;
+			'') cell='–' ;;
+			*) cell="$R${st/timer-/timer }$N" ;;
+			esac
+			jb+="${jb:+ · }$cell"
+		done
+		((n && allskip)) && jb="${D}– skipped${N}"
+		printf ' %s  %s %s %s %s %s\n' "$(pad "$(pad "$tn" "$tw")  $en" "$nw")" "$(pad "$pm" 6)" "$(pad "$ht" 5)" \
+			"$(pad "$nd" 7)" "$(pad "$rl" 19)" "${jb:-–}"
+	done
+	((any_stale)) && printf ' %s↻ Node was upgraded on disk; the app picks it up at its next PM2 restart%s\n' "$D" "$N"
+	echo
+fi
+
+ac="you: ${you:-local}"
+((others)) && ac+=" · $others other session$( ((others > 1)) && printf s)"
+sf=$(c ssh_failed)
+[ -n "$sf" ] && ac+=" · $D$sf failed SSH logins / 24h$N"
+row Access "$ac"
+[ -n "$web" ] && row Web "${web// / · }"
+if [ $have_cache = 1 ]; then
+	printf ' %sChecked %s (%s) by motd-collect.timer · refresh: sudo systemctl start motd-collect%s\n' \
+		"$D" "$(hm "$collected")" "$(ago "$collected")" "$N"
+fi
+exit 0

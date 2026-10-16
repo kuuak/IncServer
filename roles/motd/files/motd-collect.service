@@ -1,0 +1,17 @@
+# Managed by Ansible (IncServer repo, roles/motd).
+[Unit]
+Description=Collect the login status screen (incserver-status)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/motd-collect
+# The cache dir outlives each run; the collector makes the file root:sudo 0640
+RuntimeDirectory=incserver-status
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full

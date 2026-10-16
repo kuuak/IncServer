@@ -16,3 +16,4 @@
     - { role: tenant, tags: [tenant] }
     - { role: backup, tags: [backup] }
     - { role: healthchecks, tags: [healthchecks] }
+    - { role: motd, tags: [motd] }
