@@ -6,6 +6,8 @@ After=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/motd-collect
+# A oneshot has no start timeout by default: a hung check would block the timer (and an apply's handler) for good
+TimeoutStartSec=4min
 # The cache dir outlives each run; the collector makes the file root:sudo 0640
 RuntimeDirectory=incserver-status
 RuntimeDirectoryMode=0755
