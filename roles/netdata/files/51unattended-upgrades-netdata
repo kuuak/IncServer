@@ -1,0 +1,5 @@
+// Managed by Ansible (IncServer repo, roles/netdata). Netdata (repository.netdata.cloud, stable + repoconfig)
+// installs unattended through apt; its own netdata-updater.timer stays disabled.
+Unattended-Upgrade::Origins-Pattern {
+	"origin=Netdata,label=Netdata";
+};

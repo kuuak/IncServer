@@ -1,0 +1,5 @@
+// Managed by Ansible (IncServer repo, roles/docker). Docker CE (download.docker.com, noble/stable) installs
+// unattended. Upgrading docker-ce or containerd.io restarts dockerd, which restarts every container (only Mailpit).
+Unattended-Upgrade::Origins-Pattern {
+	"origin=Docker,label=Docker CE";
+};

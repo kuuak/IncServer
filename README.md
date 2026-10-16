@@ -74,7 +74,7 @@ with a filled vault**: the restic env and rclone.conf templates were written wit
 ## Not captured yet
 
 - Packages (beyond restic/rclone/nodejs), certbot certificates, the apt sources (Docker, Netdata), unattended-upgrades
-  config (only the NodeSource origin drop-in is managed, by `nodejs`)
+  config (only the third-party origin drop-ins are managed: NodeSource by `nodejs`, Docker by `docker`, Netdata by `netdata`)
 - Tenant `authorized_keys`: per-Environment deploy keys arrive with delivery-order-app #553
 - PostgreSQL / Redis config (both stock apart from what the packages ship), the Tenants' app files and `.env`
 
