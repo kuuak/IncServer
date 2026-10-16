@@ -1,6 +1,11 @@
 - name: Reload systemd
   ansible.builtin.systemd: { daemon_reload: true }
 
+- name: Clear failed motd-news
+  ansible.builtin.command: systemctl reset-failed motd-news.service
+  changed_when: true
+  failed_when: false   # nothing to clear: it never failed
+
 - name: Collect status
   ansible.builtin.systemd: { name: motd-collect.service, state: started }
   ignore_errors: "{{ ansible_check_mode }}"   # the unit does not exist yet during a first dry run
