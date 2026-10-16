@@ -115,11 +115,6 @@ collected=$(c collected)
 if [ $have_cache = 0 ]; then
 	if [ -e "$cache" ]; then alarm "Status cache not readable (members of sudo only): $cache"
 	else alarm "No status cache yet: sudo systemctl start motd-collect.service"; fi
-	# Ubuntu's own reboot notice is off (motd_stock_parts_off): keep that one even without the cache
-	if [ -e /run/reboot-required ]; then
-		pk=$({ tr '\n' ' ' </run/reboot-required.pkgs; } 2>/dev/null) pk=${pk% }
-		warn "Reboot required${pk:+ (${pk// /, })}"
-	fi
 elif ! [[ $collected =~ ^[0-9]+$ ]] || ((now - collected > stale_after)); then
 	alarm "Status cache is stale (collected $(hm "$collected"), $(ago "$collected")): systemctl status motd-collect.timer"
 fi
@@ -184,6 +179,12 @@ if [ $have_cache = 1 ]; then
 			alarm "Reboot pending since $(day "$rs") (${pk:-?}) and reboot-if-required.timer is $(c reboot_timer)"
 		fi
 	fi
+fi
+# Ubuntu's own reboot notice is off (motd_stock_parts_off): check live whenever the cache does not report one, i.e.
+# no cache, a stale one (a broken collector leaves its last file in /run), or an upgrade since the last collect
+if [ -z "$(c reboot_since)" ] && [ -e /run/reboot-required ]; then
+	pk=$({ tr '\n' ' ' </run/reboot-required.pkgs; } 2>/dev/null) pk=${pk% }
+	warn "Reboot required${pk:+ (${pk// /, })}"
 fi
 
 # unattended-upgrades: ok = last run succeeded and touched upgrade-stamp, and that was less than 36 h ago
