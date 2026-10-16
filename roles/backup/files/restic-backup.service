@@ -1,6 +1,15 @@
 [Unit]
 Description=Restic Backup
 
+# Known, harmless journal line at the end of most runs (checked 2026-10-16, systemd 255.4 / kernel 6.8):
+#   restic-backup.service: Failed to kill control group /system.slice/restic-backup.service, ignoring: Invalid argument
+# When the script exits, systemd sweeps the unit's cgroup (KillMode=control-group, the default) and opens a pidfd for
+# every PID in cgroup.procs. A process that is exiting at that same moment can make pidfd_open() fail with EINVAL
+# (its PID number is still allocated, but no longer to a live process) instead of ESRCH; systemd only skips ESRCH,
+# so it logs this and goes on. The run is not affected: Result=success, no process is left behind, and the sweep
+# after ExecStopPost (healthchecks ping) is clean. It is a race, so some nights have no warning at all.
+# Not silenced with KillMode=process: that would also stop systemd from cleaning up a stray process of a backup.
+
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/restic-backup.sh
