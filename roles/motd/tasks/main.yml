@@ -90,7 +90,7 @@
 - name: Status banner (the header's "IncServer")
   ansible.builtin.copy: { src: incserver-status.banner, dest: /etc/incserver-status.banner, mode: "0644" }
 
-- name: Status at login (members of sudo, interactive shells)
+- name: Status at login (members of sudo; the previous login for other users)
   ansible.builtin.copy: { src: zz-incserver-status.sh, dest: /etc/profile.d/zz-incserver-status.sh, mode: "0644" }
 
 - name: Flush handlers

@@ -131,8 +131,8 @@ healthchecks_jobs:
 # --- Login status screen (role motd) -------------------------------------------------------
 # `incserver-status`, shown at login to members of `sudo` only. Environments come from `tenants`, app jobs from
 # `tenant_app_jobs`, the Web line from `nginx_tool_sites`. Refresh the cache: `sudo systemctl start motd-collect`.
-# The header: the banner (roles/motd/files/incserver-status.banner, drawn for "IncServer") with the subtitle, Ubuntu
-# release and time beside it; "<name> · <subtitle>" on one line when there is no room for it.
+# The header: the banner (roles/motd/files/incserver-status.banner) with the subtitle, Ubuntu release and time beside
+# it; "<name> · <subtitle>" on one line when there is no room, or when the banner's "# spells:" isn't motd_name.
 motd_name: IncServer
 motd_subtitle: PRODUCTION · delivery-order-app
 motd_backup_label: Swiss Backup c04
