@@ -153,8 +153,7 @@ motd_stock_parts_off:
   - 91-contract-ua-esm-status
   - 91-release-upgrade
 # While a pizzeria is open (Europe/Zurich), the screen warns: no PM2 / Postgres / Docker / ssh / journald restarts.
-# Not given yet: empty, so the line never shows. days: Mon..Sun, a range (Tue-Sun) or a list (Fri,Sat);
+# Empty: the line never shows. days: Mon..Sun, a range (Tue-Sun), a list (Fri,Sat) or both (Mon,Wed-Sun);
 # quoted "HH:MM", `to` later than `from`, same day (no window past midnight; the apply fails otherwise).
-motd_opening_hours: []
-#  - { days: Tue-Sun, from: "11:00", to: "14:00" }
-#  - { days: "Fri,Sat", from: "17:30", to: "23:00" }
+motd_opening_hours:
+  - { days: "Mon,Wed-Sun", from: "18:00", to: "22:00" }
