@@ -93,6 +93,7 @@ daynum() { case $1 in Mon) echo 1 ;; Tue) echo 2 ;; Wed) echo 3 ;; Thu) echo 4 ;
 open_until=''
 for h in "${hours[@]}"; do
 	read -r days from to <<<"$h"
+	[[ ${from:-} =~ ^[0-9]{1,2}:[0-9]{2}$ && ${to:-} =~ ^[0-9]{1,2}:[0-9]{2}$ ]] || continue
 	hit=0
 	for d in ${days//,/ }; do
 		a=$(daynum "${d%-*}") b=$(daynum "${d#*-}")
