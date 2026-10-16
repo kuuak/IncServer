@@ -99,8 +99,11 @@ tenant_app_jobs:
   - { name: purge-expired-tokens, schedule: "*-*-* 03:15:00" }
 
 # Pre-deploy dumps in <home>/backups older than this many days are deleted by systemd-tmpfiles-clean (daily).
-# 0 = off. Today some are from 2026-02, so the first clean after turning this on deletes them.
-tenant_backups_max_age_days: 0
+# 0 = off. Data retention (Audit L1). restic keeps a deleted dump only while a snapshot holding it is kept: 12 months
+# if it was there at a month's last snapshot, else about 4 weeks (--keep-daily 7 --keep-weekly 4 --keep-monthly 12).
+# Age = the newest of a dump's atime, mtime, ctime and btime (tmpfiles default), so reading or chmod-ing a dump
+# restarts its clock. Not reached: refresh-staging's dir (/var/www/<domain>/backups, app repo, keeps the last 3).
+tenant_backups_max_age_days: 14
 
 # PM2 logs (<home>/.pm2/logs/*.log, pm2.log) are rotated daily by logrotate, this many days kept (gzipped
 # but the newest). Rotated copies are excluded from restic (roles/backup/files/excludes.txt).
