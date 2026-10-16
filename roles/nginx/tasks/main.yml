@@ -39,4 +39,5 @@
     src: "{{ '/etc/nginx/sites-available/000-catch-all.conf' if nginx_catch_all_enabled else omit }}"
     dest: /etc/nginx/sites-enabled/000-catch-all.conf
     state: "{{ 'link' if nginx_catch_all_enabled else 'absent' }}"
+    force: "{{ ansible_check_mode }}"   # the src is not there yet during a first dry run; a real run copies it first
   notify: Reload nginx
