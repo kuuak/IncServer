@@ -4,7 +4,10 @@ set -euo pipefail
 
 
 BACKUP_DIR="/var/backups/postgres"
-mkdir -p "$BACKUP_DIR"
+# Dumps hold customer data and role password hashes: root only. umask covers new files; a dump that already
+# exists is truncated in place and keeps its mode, the 0700 directory covers it anyway.
+umask 077
+install -d -m 700 "$BACKUP_DIR"
 
 echo "=== $(date) Starting PostgreSQL dumps ==="
 
