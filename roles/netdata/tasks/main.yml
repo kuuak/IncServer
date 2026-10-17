@@ -17,3 +17,9 @@
     mode: "0640"
   no_log: true
   when: vault_netdata_htpasswd | default('') | length > 0
+
+- name: Netdata in unattended-upgrades' allowed origins
+  ansible.builtin.copy:
+    src: 51unattended-upgrades-netdata
+    dest: /etc/apt/apt.conf.d/51unattended-upgrades-netdata
+    mode: "0644"

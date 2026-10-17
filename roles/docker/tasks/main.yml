@@ -4,3 +4,9 @@
   # No handler on purpose: restarting dockerd restarts every container. Do it by hand in a window. Log options
   # are fixed when a container is created, so recreate the containers after that restart (the mailpit role
   # does it whenever the compose file changes).
+
+- name: Docker CE in unattended-upgrades' allowed origins
+  ansible.builtin.copy:
+    src: 51unattended-upgrades-docker
+    dest: /etc/apt/apt.conf.d/51unattended-upgrades-docker
+    mode: "0644"
