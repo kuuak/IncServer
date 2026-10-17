@@ -33,13 +33,14 @@
   notify: Reload systemd
   # Takes effect at each unit's next restart; never restart ssh/journald/postgres from here.
 
-- name: SSHD drop-in (PermitRootLogin no, X11Forwarding no, PrintLastLog no)
-  ansible.builtin.copy:
-    src: sshd-10-incserver.conf
+- name: SSHD drop-in (no root login, no forwarding, MaxAuthTries 3, AllowUsers = admins + Environment users, PrintLastLog no)
+  ansible.builtin.template:
+    src: sshd-10-incserver.conf.j2
     dest: /etc/ssh/sshd_config.d/10-incserver.conf
     mode: "0644"
     validate: "sshd -t -f %s"
   notify: Reload ssh
+  # Ubuntu's ssh.service runs `sshd -t` on the whole config before the reload's HUP; open sessions stay up.
 
 - name: Journald size cap
   ansible.builtin.copy: { src: journald-size.conf, dest: /etc/systemd/journald.conf.d/size.conf, mode: "0644" }

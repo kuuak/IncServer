@@ -1,0 +1,9 @@
+# Managed by the IncServer repo (docs/runbooks/2026-09-cleanup.md)
+PermitRootLogin no
+X11Forwarding no
+MaxAuthTries 3
+AllowTcpForwarding no
+AllowAgentForwarding no
+# The login status screen shows the previous login (role motd)
+PrintLastLog no
+AllowUsers {{ (sshd_admin_users + (tenants | map(attribute='environments') | flatten | map(attribute='user') | list)) | unique | join(' ') }}
