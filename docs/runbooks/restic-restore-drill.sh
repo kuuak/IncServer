@@ -18,7 +18,8 @@
 #
 # Then record the date and the RESULT line in docs/runbooks/backup-verification.md.
 # Exit 0 = RESULT: PASS (restored, same tables, every count equal to live). Exit 1 = anything else: counts that
-# differ (rows written since the snapshot; run it again before the first order of the day) or a failed step.
+# differ (rows written since the snapshot; run it again after the next nightly backup and before the 03:15
+# purge-expired-tokens job, which deletes rows) or a failed step.
 set -euo pipefail
 umask 077
 cd /

@@ -83,8 +83,10 @@ Reading the result:
 - `sha256 … identical`: the dump restic returned is byte for byte the one still on disk from the same night.
   `differs` is expected only when a nightly run came after the snapshot it used.
 - `RESULT: PASS`: same tables, every count equal to live. `RESULT: COUNTS DIFFER`: the restore worked, but rows were
-  written after the snapshot (orders, sessions, the 03:15 token purge). Run it again in the morning before the first
-  order; the drill is passed when the counts match.
+  written after the snapshot (orders, sessions, the 03:15 token purge). Run it again after the next nightly backup
+  (done about 00:01) and before 03:15: from 03:15 on, `purge-expired-tokens` (production and staging) deletes the
+  tokens that expired since the snapshot, so a run in the morning can still differ. The drill is passed when the
+  counts match.
 - `RESULT: FAILED at step: …`: restic or the load failed (psql errors show as SQLSTATE codes only). The scratch
   database and the temp dir are cleaned up anyway; a `REFUSE: restore_drill_… already exists` means a run was killed
   before its cleanup.
