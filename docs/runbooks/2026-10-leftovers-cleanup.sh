@@ -64,12 +64,22 @@ for h in "${GONE_HOSTS[@]}"; do
 done
 [ "$(systemctl show -p LoadState --value alloy.service)" = not-found ] || { echo "REFUSE: alloy.service still installed"; exit 1; }
 if pgrep -u alloy >/dev/null 2>&1; then echo "REFUSE: processes still run as alloy"; exit 1; fi
-other=$(find / -xdev -path /proc -prune -o -user alloy -print 2>/dev/null | grep -v "^$ALLOY_HOME" || true)
-[ -z "$other" ] || { echo "REFUSE: files owned by alloy outside $ALLOY_HOME:"; echo "$other"; exit 1; }
+# Files owned by user or group alloy outside its home would be orphaned to uid/gid 999 after userdel. The home is
+# pruned by exact path, so siblings like /var/lib/alloy.bak are still searched. find aborts on an unknown name, so
+# each test is added only if that account exists; a failing find stops the run here (set -e), before any delete.
+owned=()
+if getent passwd alloy >/dev/null; then owned+=(-user alloy); fi
+if getent group alloy >/dev/null; then owned+=(${owned[0]:+-o} -group alloy); fi
+other=""
+if [ ${#owned[@]} -gt 0 ]; then
+    other=$(find / -xdev \( -path /proc -o -path "$ALLOY_HOME" \) -prune -o \( "${owned[@]}" \) -print)
+fi
+[ -z "$other" ] || { echo "REFUSE: files owned by user or group alloy outside $ALLOY_HOME:"; echo "$other"; exit 1; }
 redis-cli PING
 
 step "target 1: Alloy drop-in (names and sizes only, never the content)"
 if [ -d "$DROPIN" ]; then ls -la "$DROPIN"; else echo "already gone"; fi
+echo "systemd's view: $(systemctl show -p DropInPaths,NeedDaemonReload alloy.service | tr '\n' ' ')"
 
 step "target 2: user alloy and its home"
 id alloy 2>&1 || echo "already gone"
@@ -97,6 +107,7 @@ if [ "$MODE" = --dry-run ]; then step "dry run: nothing deleted"; exit 0; fi
 step "delete 1: Alloy drop-in, daemon-reload"
 rm -rf "$DROPIN"
 systemctl daemon-reload
+echo "systemd's view: $(systemctl show -p DropInPaths,NeedDaemonReload alloy.service | tr '\n' ' ')"
 
 step "delete 2: user alloy (and group), then its home"
 if id alloy >/dev/null 2>&1; then userdel alloy; fi   # not -r: it fails on the absent mail spool

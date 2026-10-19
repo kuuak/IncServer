@@ -13,6 +13,13 @@ check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; fail=1; f
 id alloy >/dev/null 2>&1; check $(( $? == 0 )) "id alloy fails"
 [ -e /etc/systemd/system/alloy.service.d ]; check $(( $? == 0 )) "Alloy drop-in /etc/systemd/system/alloy.service.d gone"
 [ -e /var/lib/alloy ]; check $(( $? == 0 )) "alloy's home /var/lib/alloy gone"
+# systemd reloaded: it holds no Alloy drop-in in memory and has no pending reload for the unit. An empty LoadState
+# means systemctl could not answer (wrong host, no systemd), which must fail rather than read as "nothing loaded".
+sd_load=$(systemctl show -p LoadState --value alloy.service 2>/dev/null)
+sd_dropins=$(systemctl show -p DropInPaths --value alloy.service 2>/dev/null)
+sd_reload=$(systemctl show -p NeedDaemonReload --value alloy.service 2>/dev/null)
+check "$([ -n "$sd_load" ] && [ -z "$sd_dropins" ] && [ "$sd_reload" != yes ] && echo 0 || echo 1)" \
+    "systemd reloaded: no Alloy drop-in loaded${sd_dropins:+ (loaded: $sd_dropins)}$([ "$sd_reload" = yes ] && echo ' (NeedDaemonReload=yes)')$([ -n "$sd_load" ] || echo ' (systemctl did not answer)')"
 
 # The checks below must fail, not pass, when they cannot see anything (Redis down or behind auth, wrong host,
 # unreadable nginx dirs): an empty listing would otherwise read as "nothing left".
@@ -36,7 +43,9 @@ done
 nginx_why=$([ "$nginx_ok" = 0 ] || echo ' (/var/log/nginx unreadable or /etc/nginx/sites-enabled empty)')
 check "$([ "$nginx_ok" = 0 ] && [ "$left" = 0 ] && echo 0 || echo 1)" "no nginx logs left for hosts without a vhost (${#GONE_HOSTS[@]} hosts)$nginx_why"
 # Every log prefix left must belong to an enabled vhost or the default/json logs.
-vhosts=$(grep -RhoE 'server_name[^;]*' /etc/nginx/sites-enabled/ | sed 's/server_name//' | tr ' ' '\n' | grep -E '\.' | sort -u)
+# Only live server_name directives count: commented ones (`# server_name ...`) would hide an orphan.
+vhosts=$(grep -RhE '^[[:space:]]*server_name[[:space:]]' /etc/nginx/sites-enabled/ \
+    | sed -E 's/#.*//; s/^[[:space:]]*server_name//; s/;.*//' | tr -s ' \t' '\n\n' | grep -E '\.' | sort -u)
 orphans=$(ls /var/log/nginx | sed -nE 's/^(.+)-(access|error)\.log.*/\1/p' | sort -u | grep -vxF "$vhosts")
 check "$([ "$nginx_ok" = 0 ] && [ -z "$orphans" ] && echo 0 || echo 1)" \
     "every per-host nginx log belongs to an enabled vhost${orphans:+ (orphans: $(echo $orphans))}$nginx_why"
