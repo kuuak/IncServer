@@ -1,0 +1,11 @@
+[Unit]
+Description=Restic monthly data check (one twelfth of the packs)
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/restic/env
+ExecStart=/usr/local/bin/restic-check-data.sh
+Nice=10
+# Fail (and ping fail) well before the Tuesday 04:30 reboot window instead of being killed by it. A run reads
+# about 1/12 of the repository; the whole nightly job (dumps, backup, prune, check) takes under a minute.
+TimeoutStartSec=90min

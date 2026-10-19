@@ -1,7 +1,9 @@
 # restic over rclone to Swiss Backup (cluster 04), nightly 00:00: pg_dump per host DB + --globals-only into
 # /var/backups/postgres, then /etc /var/www /home/*/.ssh /var/backups/postgres /var/lib/redis /root /usr/local/bin;
 # keep 7 daily / 4 weekly / 12 monthly; `restic check` every run. Shipped as it runs on the box. Restore: restic
-# docs, same repo credentials as below.
+# docs, same repo credentials as below; drill: docs/runbooks/backup-verification.md.
+# Monthly data check (1st, 02:30): restic-check-data reads back one twelfth of the packs (the month's twelfth),
+# pinged to healthchecks.io like the nightly run (role healthchecks, key restic-check-data).
 #
 # Secrets: /etc/restic/env (RESTIC_REPOSITORY, RESTIC_PASSWORD) and root's rclone.conf (remote
 # KuuakIncServerBackup). Both are templated only once the vault has them; see vault.yml.example first.
@@ -27,9 +29,12 @@
 - name: Backup script
   ansible.builtin.copy: { src: restic-backup.sh, dest: /usr/local/bin/restic-backup.sh, mode: "0755" }
 
+- name: Data check script
+  ansible.builtin.copy: { src: restic-check-data.sh, dest: /usr/local/bin/restic-check-data.sh, mode: "0755" }
+
 - name: Units
   ansible.builtin.copy: { src: "{{ item }}", dest: "/etc/systemd/system/{{ item }}", mode: "0644" }
-  loop: [restic-backup.service, restic-backup.timer]
+  loop: [restic-backup.service, restic-backup.timer, restic-check-data.service, restic-check-data.timer]
   notify: Reload systemd
 
 - name: Unit drop-in directory
@@ -42,6 +47,7 @@
 - name: Flush handlers
   ansible.builtin.meta: flush_handlers
 
-- name: Enable timer
-  ansible.builtin.systemd: { name: restic-backup.timer, enabled: true, state: started }
+- name: Enable timers
+  ansible.builtin.systemd: { name: "{{ item }}", enabled: true, state: started }
+  loop: [restic-backup.timer, restic-check-data.timer]
   ignore_errors: "{{ ansible_check_mode }}"   # the unit does not exist yet during a first dry run

@@ -125,8 +125,12 @@ backup_swift_auth_url: https://swiss-backup04.infomaniak.com/identity/v3
 #   restic-backup        cron "0 0 * * *",  grace 2 h    (restic-backup.timer, daily 00:00)
 #   certbot              period 1 day,      grace 2 h    (certbot.timer, 00:00 and 12:00 + up to 12 h random)
 #   unattended-upgrades  cron "0 6 * * *",  grace 2 h    (apt-daily-upgrade.timer, 06:00 + up to 60 min random)
+#   restic-check-data    cron "30 2 1 * *", grace 2 h    (restic-check-data.timer, 1st of the month 02:30)
 healthchecks_jobs:
   - { key: restic-backup, unit: restic-backup.service, url: "{{ vault_healthcheck_backup_url | default('') }}" }
+  - key: restic-check-data
+    unit: restic-check-data.service
+    url: "{{ vault_healthcheck_restic_check_data_url | default('') }}"
   - { key: certbot, unit: certbot.service, url: "{{ vault_healthcheck_certbot_url | default('') }}" }
   - key: unattended-upgrades
     unit: apt-daily-upgrade.service

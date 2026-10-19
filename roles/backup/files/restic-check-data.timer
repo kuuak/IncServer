@@ -1,0 +1,11 @@
+[Unit]
+Description=Monthly Restic data check
+
+[Timer]
+# 1st of the month 02:30: well after the nightly backup (00:00, done in about a minute), 2 h before the Tuesday
+# 04:30 reboot window (when the 1st is a Tuesday), with the pizzeria closed.
+OnCalendar=*-*-01 02:30 Europe/Zurich
+Persistent=true
+
+[Install]
+WantedBy=timers.target

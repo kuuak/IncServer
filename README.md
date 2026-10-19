@@ -17,9 +17,9 @@ Vocabulary (Tenant, Environment, ...): [CONTEXT.md](CONTEXT.md).
 | nginx + certbot | host | 80, 443 (v4 + v6) | `nginx` |
 | Mailpit (catches all app mail, ADR-0003) | compose, `/var/www/mailhog.kuuak.ch` | UI mailhog.kuuak.ch (basic auth); SMTP 1025 v4 | `mailpit` |
 | Netdata | host (apt repo) | netdata.kuuak.ch (basic auth) | `netdata` |
-| restic → Swiss Backup cluster 04, nightly 00:00 | host (systemd) | – | `backup` |
+| restic → Swiss Backup cluster 04, nightly 00:00 (structural `restic check` each run); data check of one twelfth of the packs on the 1st, 02:30 | host (systemd: `restic-backup.timer`, `restic-check-data.timer`) | – | `backup` |
 | Weekly reboot window, Tue 04:30, only if required | host (systemd) | – | `base` |
-| healthchecks.io pings (email) for restic-backup, certbot, unattended-upgrades, production app jobs | systemd drop-ins + `/usr/local/sbin/hc-ping` | – | `healthchecks` (wired once the URLs are in the vault) |
+| healthchecks.io pings (email) for restic-backup, the monthly restic data check, certbot, unattended-upgrades, production app jobs | systemd drop-ins + `/usr/local/sbin/hc-ping` | – | `healthchecks` (wired once the URLs are in the vault) |
 | Login status screen for admins (`incserver-status`, at login for `sudo` members; replaces Ubuntu's help links, ads and sysinfo) | `/usr/local/bin/incserver-status`, cache by `motd-collect.timer` (5 min) in `/run/incserver-status` | – | `motd` |
 
 ## Usage
@@ -104,3 +104,4 @@ with a filled vault**: the restic env and rclone.conf templates were written wit
 
 - [2026-09 cleanup and security pass](docs/runbooks/2026-09-cleanup.md)
 - [2026-10 Node 22 switch, staging then production](docs/runbooks/2026-10-node22.md)
+- [Backup verification: monthly data check, restore drill and its log](docs/runbooks/backup-verification.md)
