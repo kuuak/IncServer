@@ -18,6 +18,7 @@ vault_swissbackup_tenant: ""       # rclone.conf tenant
 
 # healthchecks.io ping URLs (handoff step 4), email-only checks
 vault_healthcheck_backup_url: ""
+vault_healthcheck_restic_check_data_url: ""   # monthly restic data check (#15), cron "30 2 1 * *"
 vault_healthcheck_certbot_url: ""
 vault_healthcheck_unattended_upgrades_url: ""
 # Production app jobs (handoff step 8), keyed like healthchecks_jobs' `key`
