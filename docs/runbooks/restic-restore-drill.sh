@@ -16,10 +16,13 @@
 #   ssh IncServer 'sudo bash ~/restic-restore-drill.sh'          # default DB: pizzeriapeperoncini (production)
 #   ssh IncServer 'rm ~/restic-restore-drill.sh'
 #
-# Then record the date and the RESULT line in docs/runbooks/backup-verification.md.
-# Exit 0 = RESULT: PASS (restored, same tables, every count equal to live). Exit 1 = anything else: counts that
-# differ (rows written since the snapshot; run it again after the next nightly backup and before the 03:15
-# purge-expired-tokens job, which deletes rows) or a failed step.
+# Then record the date and the RESULT line in docs/runbooks/backup-verification.md. Exit codes:
+#   0  RESULT: PASS: restored, same tables, every count equal to live.
+#   1  RESULT: COUNTS DIFFER: rows written since the snapshot; run it again after the next nightly backup and before
+#      the 03:15 purge-expired-tokens job, which deletes rows. Or RESULT: FAILED at step: …: a step failed (the
+#      failing command's own code, e.g. 11 for a restic lock or 3 for a psql error, is not passed on).
+#   2  refused, nothing done and no RESULT line: a bad argument, not root, the nightly backup or the monthly data
+#      check running (both hold the restic lock), no such live database, or a scratch database left over (REFUSE:).
 set -euo pipefail
 umask 077
 cd /
@@ -50,21 +53,32 @@ cleanup() {
             && echo "scratch database $SCRATCH dropped" || echo "WARNING: could not drop $SCRATCH: drop it by hand"
     fi
     [ -z "$tmp" ] || rm -rf "$tmp"
-    if [ "$rc" != 0 ] && [ "$current" != "done" ]; then echo "RESULT: FAILED at step: $current"; fi
+    if [ "$rc" != 0 ] && [ "$current" != "done" ] && [ "$current" != "refused" ]; then
+        echo "RESULT: FAILED at step: $current"; rc=1
+    fi
     exit "$rc"
 }
 trap cleanup EXIT
+refuse() { current="refused"; echo "REFUSE: $1"; shift; [ $# = 0 ] || printf '%s\n' "$@"; exit 2; }
+# Busy unless inactive or failed: a Type=oneshot unit is "activating" while its script runs (never "active") and
+# "deactivating" during its healthchecks ping. A unit that is not installed shows as inactive.
+busy() { case $(systemctl is-active "$1" || true) in inactive | failed) return 1 ;; esac; }
 
 step "preflight: database $DB, scratch database $SCRATCH"
 hostname
-if [ "$(systemctl is-active restic-backup.service || true)" = active ]; then
-    echo "REFUSE: the nightly backup is running; try again when it is done"; exit 2
+if busy restic-backup.service; then
+    refuse "the nightly backup (restic-backup.service, 00:00) is running and holds the restic lock;" \
+        "try again in a few minutes (a run takes about a minute)"
+fi
+if busy restic-check-data.service; then
+    refuse "the monthly data check (restic-check-data.service, 1st at 02:30) is running and holds the restic lock;" \
+        "try again once 'systemctl is-active restic-check-data.service' says inactive (stopped after 90 min)"
 fi
 exists() { [ "$(pg -At -d postgres -v name="$1" <<<"SELECT count(*) FROM pg_database WHERE datname = :'name';")" = 1 ]; }
-exists "$DB" || { echo "REFUSE: no live database $DB"; exit 2; }
+exists "$DB" || refuse "no live database $DB"
 if exists "$SCRATCH"; then
-    echo "REFUSE: $SCRATCH already exists (an interrupted drill?). Check it is one, then:"
-    echo "  sudo -u postgres dropdb '$SCRATCH'"; exit 2
+    refuse "$SCRATCH already exists (an interrupted drill?). Check it is one, then:" \
+        "  sudo -u postgres dropdb '$SCRATCH'"
 fi
 tmp=$(mktemp -d /root/restore-drill.XXXXXX)
 
