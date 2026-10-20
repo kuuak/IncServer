@@ -72,7 +72,7 @@ template or verbatim, includes it in each `listen 443` server. Per-Environment o
 
 Each Environment reaches Redis as its own ACL user, named like its Unix user (`peperoncini`, `peperoncini-staging`),
 with its password from `vault_tenant_redis_passwords`. It may touch only keys `<redis_namespace>:*` and the channels
-of the same name (production `peperoncini-production`, staging `staging-peperoncini`: the app's `REDIS_NAMESPACE`),
+of the same name (`<tenant>-<environment>`: `peperoncini-production`, `peperoncini-staging`; the app's `REDIS_NAMESPACE`),
 and run only `redis_app_commands`, the ones delivery-order-app uses for SSE (`vars.yml`). The app logs in through its
 `REDIS_URL` (`redis://<user>:<password>@<host>:6379`, no `/<db>`) in the release's `.env.*` files, which every deploy
 carries over. Besides them: `admin` (local admin, every key and command: `redis-cli --user admin --askpass`) and

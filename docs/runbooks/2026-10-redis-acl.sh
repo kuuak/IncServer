@@ -3,19 +3,24 @@
 # docs/runbooks/2026-10-redis-acl.md. Copy it over (scp docs/runbooks/2026-10-redis-acl.sh IncServer:/tmp/), then:
 #
 #   bash /tmp/2026-10-redis-acl.sh test <acl user> <own namespace> <other namespace>   as ubuntu
-#   bash /tmp/2026-10-redis-acl.sh env <acl user>                                      as the Environment's user
+#   bash /tmp/2026-10-redis-acl.sh env <acl user> <namespace>                          as the Environment's user
 #   bash /tmp/2026-10-redis-acl.sh clients                                             as ubuntu
+#   bash /tmp/2026-10-redis-acl.sh orphans <old namespace> [delete]                    as ubuntu
 #   sudo bash /tmp/2026-10-redis-acl.sh mark | errors                                  as ubuntu (sudo)
 #
 # test     The user's own keys and channels work; the other namespace's keys and channels, and every command the app
 #          does not use, fail with NOPERM. It writes only <own>:acl-test (60 s TTL, deleted at the end) and publishes
 #          only on <own>:acl-test and <other>:acl-test, names no app uses: even a broken ACL cannot reach the other
 #          Environment's orders stream. Replies from the other namespace are never printed.
-# env      Puts <acl user>:<password> into REDIS_URL in ~/current/.env.production.local, .env.production and
-#          .env.local (each one that defines it; .env.production.local if none does). Deploys copy these files into
-#          every new release. Then prints the URL as the app resolves it (password masked), REDIS_NAMESPACE, whether
-#          that login works, and whether the PM2 dump or ecosystem.config.js would override the files.
+# env      Sets REDIS_NAMESPACE=<namespace>, then puts <acl user>:<password> into REDIS_URL, in
+#          ~/current/.env.production.local, .env.production and .env.local (each one that defines the key;
+#          .env.production.local if none does). Deploys copy these files into every new release. Changes nothing
+#          unless Redis takes the login and lets that user use <namespace>:. Then prints the URL as the app resolves
+#          it (password masked) and REDIS_NAMESPACE, checks both, and that neither the PM2 dump nor ecosystem.config.js
+#          would override the files.
 # clients  Redis connections by ACL user and protocol, and the ACL LOG (denials: user, reason, key or command name; never values).
+# orphans  As admin: how many keys <old namespace>:* are left (a namespace no Environment uses any more); `delete`
+#          UNLINKs them and counts again. Counts only, never a key name. Refuses a namespace an ACL user may still use.
 # mark, errors
 #          PM2 error-log line counts of every Environment: `mark` before a step, `errors` after it prints the new
 #          error lines per log and how many of them mention Redis. Counts only, never a line: production's hold orders.
@@ -24,7 +29,7 @@
 # the exit status is 1 if any failed.
 set -uo pipefail
 
-usage() { sed -n '5,8p' "$0" >&2; exit 2; }
+usage() { sed -n '5,9p' "$0" >&2; exit 2; }
 fails=0
 pass() { echo "PASS  $*"; }
 fail() { echo "FAIL  $*"; fails=1; }
@@ -96,8 +101,8 @@ cmd_test() {
 }
 
 cmd_env() {
-	[ $# -eq 1 ] || usage
-	local user=$1 f edited=0 url ns login
+	[ $# -eq 2 ] && [[ $2 =~ ^[a-z0-9-]+$ ]] || usage
+	local user=$1 want_ns=$2 f edited=0 url ns login probe
 	cd ~/current || { fail "no ~/current: run this as the Environment's user"; finish; }
 	ask_password "$user"
 	# Hex only: anything else would need URL escaping in REDIS_URL (vault.yml.example).
@@ -108,8 +113,31 @@ cmd_env() {
 	NOPERM* | "$user") pass "Redis accepts $user with this password" ;;
 	*) fail "Redis login as $user: ${login:0:100} (no file changed)"; finish ;;
 	esac
-	export PW=$REDISCLI_AUTH ACL_USER=$user
+	# ...and may this user use the namespace? (An app on its own user with another namespace gets NOPERM everywhere.)
+	probe=$(timeout 3 redis-cli --no-auth-warning --user "$user" SCARD "$want_ns:sse:active" 2>&1 | head -1)
+	if [[ $probe =~ ^[0-9]+$ ]]; then pass "$user may use $want_ns:"
+	else fail "$user on $want_ns:sse:active: ${probe:0:100} (no file changed)"; finish; fi
+	export PW=$REDISCLI_AUTH ACL_USER=$user NS=$want_ns
 
+	# The namespace first: should this stop halfway, the app has the new namespace on the default user (harmless
+	# while that user is on), never its own user on a namespace it may not use.
+	edited=0
+	for f in .env.production.local .env.production .env.local; do
+		if ! [ -f "$f" ] || ! grep -Eq '^(export[[:space:]]+)?REDIS_NAMESPACE=' "$f"; then continue; fi
+		edited=1
+		if grep -Eq "^(export[[:space:]]+)?REDIS_NAMESPACE=[\"']?${want_ns}[\"']?[[:space:]]*(#.*)?\$" "$f"; then
+			echo "      $f: REDIS_NAMESPACE already $want_ns"; continue
+		fi
+		# REDIS_NAMESPACE=[quote]old[quote] -> the new one, quotes and the rest of the line kept; mode kept.
+		perl -i -pe 's{^((?:export\s+)?REDIS_NAMESPACE=)(["\x27]?)[^"\x27\s]*\2}{$1$2$ENV{NS}$2}' "$f" &&
+			echo "      edited REDIS_NAMESPACE in $f"
+	done
+	if [ "$edited" = 0 ]; then
+		(umask 077 && printf 'REDIS_NAMESPACE="%s"\n' "$want_ns" >>.env.production.local) &&
+			echo "      added REDIS_NAMESPACE to .env.production.local (no Environment file defined it)"
+	fi
+
+	edited=0
 	for f in .env.production.local .env.production .env.local; do
 		if ! [ -f "$f" ] || ! grep -Eq '^(export[[:space:]]+)?REDIS_URL=' "$f"; then continue; fi
 		# redis://[old user[:password]@]host… -> redis://<user>:<password>@host…, quotes and the rest kept; mode kept.
@@ -125,6 +153,8 @@ cmd_env() {
 	ns=$(NODE_ENV=production node scripts/deploy-env.mjs get REDIS_NAMESPACE 2>/dev/null)
 	echo "      REDIS_URL as the app resolves it: $(printf '%s' "$url" | sed -E 's#(://[^:@/]*:)[^@]*@#\1***@#')"
 	echo "      REDIS_NAMESPACE: ${ns:-(unset: the app falls back to delivery-order-app)}"
+	if [ "$ns" = "$want_ns" ]; then pass "REDIS_NAMESPACE is $want_ns"
+	else fail "REDIS_NAMESPACE resolves to '${ns}', not $want_ns: fix it before restarting PM2"; fi
 	# No /<db>: the user may not run SELECT.
 	if [[ $url =~ ^redis://$user:[^@/]+@[^/]+$ ]]; then pass "REDIS_URL logs in as $user, no database number"
 	else fail "REDIS_URL is not redis://$user:<password>@<host>:<port>"; fi
@@ -132,8 +162,8 @@ cmd_env() {
 	else fail "REDIS_URL carries another password than the one typed"; fi
 	for f in ~/.pm2/dump.pm2 ecosystem.config.js; do   # an env set there would win over the files
 		[ -f "$f" ] || continue
-		if [ "$(grep -c REDIS_URL "$f")" = 0 ]; then pass "no REDIS_URL in $f"
-		else fail "$f sets REDIS_URL too: change it there as well"; fi
+		if [ "$(grep -cE 'REDIS_(URL|NAMESPACE)' "$f")" = 0 ]; then pass "no REDIS_URL or REDIS_NAMESPACE in $f"
+		else fail "$f sets REDIS_URL or REDIS_NAMESPACE too: change it there as well"; fi
 	done
 	unset PW
 	finish
@@ -153,6 +183,30 @@ cmd_clients() {
 		prev == "reason" { r = $0 } prev == "object" { o = $0 }
 		prev == "username" && o != "acl|whoami" { print $0, r, o } { prev = $0 }' | sort | uniq -c | sed 's/^ */      /'
 	echo "      (end)"
+	finish
+}
+
+cmd_orphans() {
+	[ $# -ge 1 ] && [ $# -le 2 ] && [ "${2:-delete}" = delete ] && [[ $1 =~ ^[a-z0-9-]+$ ]] || usage
+	local ns=$1 n a=(--no-auth-warning --user admin) who
+	ask_password admin
+	who=$(redis-cli "${a[@]}" ACL WHOAMI 2>&1 | head -1)
+	[ "$who" = admin ] || { fail "login as admin: ${who:0:100}"; finish; }
+	# An ACL user that may use the namespace = an Environment still on it (vars.yml's redis_namespace).
+	if redis-cli "${a[@]}" ACL LIST | grep -Fq " ~$ns:* "; then
+		fail "an ACL user may still use $ns: (nothing deleted)"; finish
+	fi
+	n=$(redis-cli "${a[@]}" --scan --pattern "$ns:*" | wc -l)
+	echo "      $n keys $ns:*"
+	if [ "${2:-}" = delete ] && [ "$n" -gt 0 ]; then
+		n=$(redis-cli "${a[@]}" --scan --pattern "$ns:*" | xargs -r -d '\n' redis-cli "${a[@]}" UNLINK |
+			awk '{ s += $1 } END { print s + 0 }')
+		echo "      unlinked $n"
+	fi
+	n=$(redis-cli "${a[@]}" --scan --pattern "$ns:*" | wc -l)
+	if [ "${2:-}" != delete ]; then :
+	elif [ "$n" = 0 ]; then pass "no $ns:* key left"
+	else fail "$n keys $ns:* left"; fi
 	finish
 }
 
@@ -184,6 +238,7 @@ case ${1:-} in
 test) shift; cmd_test "$@" ;;
 env) shift; cmd_env "$@" ;;
 clients) cmd_clients ;;
+orphans) shift; cmd_orphans "$@" ;;
 mark) cmd_mark ;;
 errors) cmd_errors ;;
 *) usage ;;

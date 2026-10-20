@@ -9,7 +9,8 @@ write every key, including the other Environment's SSE bookkeeping and broadcast
 | `/etc/redis/redis.conf` | stock (`# aclfile /etc/redis/users.acl`) | stock but `aclfile /etc/redis/users.acl` |
 | `/etc/redis/users.acl` | – | from `roles/tenant/templates/redis-users.acl.j2`, `root:redis 0640`, SHA-256 hashes only |
 | `default` user | on, no password, every key and command | off (`redis_default_user_enabled: false`, step 7) |
-| Environments | as `default` | `peperoncini` (`~peperoncini-production:*`, `&peperoncini-production:*`), `peperoncini-staging` (`~staging-peperoncini:*`, `&staging-peperoncini:*`), each only `redis_app_commands` |
+| Environments | as `default` | `peperoncini` (`~peperoncini-production:*`, `&peperoncini-production:*`), `peperoncini-staging` (`~peperoncini-staging:*`, `&peperoncini-staging:*`), each only `redis_app_commands` |
+| Staging's `REDIS_NAMESPACE` | `staging-peperoncini` | `peperoncini-staging`: `<tenant>-<environment>` like production's `peperoncini-production` (and the GitHub Environments, the staging Unix user, its Postgres role and DB); set in step 5 |
 | Local admin | `redis-cli` | `redis-cli --user admin --askpass` (every key and command) |
 | Netdata's Redis collector | discovered job `local`, as `default` | same job name from `/etc/netdata/go.d/redis.conf`, as `netdata` (`PING`, `INFO`, `CONFIG GET`) |
 
@@ -44,7 +45,16 @@ Staging first; production only while the pizzeria is closed. Every step lists it
 A Tuesday 04:30 reboot between steps is harmless: Redis starts from the validated `users.acl`, and while the default
 user is on, an app not switched yet still gets in.
 `H=/var/www/pizzeria-peperoncini.ch`. Copy the helper once: `scp docs/runbooks/2026-10-redis-acl.sh IncServer:/tmp/`
-(`test`, `env`, `clients`, `mark`, `errors`; it asks for passwords and never prints them or a log line).
+(`test`, `env`, `clients`, `orphans`, `mark`, `errors`; it asks for passwords and never prints them, a key name or a
+log line).
+
+Order: an app on its own ACL user with a namespace that user may not use gets `NOPERM` on every command (SSE falls
+back to local delivery). So staging's namespace changes together with its login, never after it: step 2 creates
+`peperoncini-staging` (allowed `peperoncini-staging:*` only) while staging keeps running as `default` on
+`staging-peperoncini` (the default user may use any key); step 5's `env` first checks that the user may use
+`peperoncini-staging:`, then sets `REDIS_NAMESPACE` before `REDIS_URL`, and the PM2 restart right after picks up both
+at once; step 7 (default off) waits until no app connects as `default`. Until that restart, the running app keeps the
+values it started with; a deploy in between starts with both new values.
 
 ### 0. Vault (any time)
 
@@ -100,30 +110,37 @@ resp=3` left, ACL LOG empty.
 ### 4. The NOPERM test (any time after 2)
 
 ```sh
-ssh -t IncServer bash /tmp/2026-10-redis-acl.sh test peperoncini-staging staging-peperoncini peperoncini-production
-ssh -t IncServer bash /tmp/2026-10-redis-acl.sh test peperoncini peperoncini-production staging-peperoncini
+ssh -t IncServer bash /tmp/2026-10-redis-acl.sh test peperoncini-staging peperoncini-staging peperoncini-production
+ssh -t IncServer bash /tmp/2026-10-redis-acl.sh test peperoncini peperoncini-production peperoncini-staging
 ```
 
 Each must end `All checks passed.`: as the staging user, `SETEX`/`DEL` on a `peperoncini-production:` key,
 `GET`/`SMEMBERS`/`SCARD`/`EXISTS` on production's SSE keys, `PUBLISH`/`SUBSCRIBE` on its channels fail with `NOPERM`,
 and so do `SET`, `SCAN`, `KEYS`, `CONFIG GET`, `SELECT`; its own `SETEX`/`GET`/`SCARD`/`PUBLISH`/`DEL` work. The same
-the other way round. Tested 2026-10-19 against Ubuntu 24.04's Redis 7.0.15 with this branch's file: all pass; on stock
-Redis (as `default`, i.e. today) every cross-Environment and extra-command check fails. Then clear the log of these
-intended denials: `ssh -t IncServer redis-cli --user admin --askpass ACL LOG RESET`.
+the other way round. Tested 2026-10-20 against Ubuntu 24.04's Redis 7.0.15 with this branch's file: all pass; on stock
+Redis (as `default`, i.e. today) every cross-Environment and extra-command check fails. The test touches only
+`<namespace>:acl-test`, so it does not matter that staging still runs on `staging-peperoncini` until step 5. Then
+clear the log of these intended denials: `ssh -t IncServer redis-cli --user admin --askpass ACL LOG RESET`.
 
 ### 5. Staging switch (any time)
 
 ```sh
 ssh IncServer 'sudo bash /tmp/2026-10-redis-acl.sh mark'
-ssh -t IncServer sudo -iu peperoncini-staging bash /tmp/2026-10-redis-acl.sh env peperoncini-staging
+ssh -t IncServer sudo -iu peperoncini-staging bash /tmp/2026-10-redis-acl.sh env peperoncini-staging peperoncini-staging
 ssh IncServer 'sudo systemctl restart pm2-peperoncini-staging'
 ```
 
-`env` (staging's Redis password): checks the login first and changes nothing if Redis refuses it; then edits each
-of `$H/staging/current/.env.production.local`, `.env.production`, `.env.local` that defines `REDIS_URL` (or adds it
-to `.env.production.local`), and must end `All checks passed.`, showing
-`redis://peperoncini-staging:***@<host>:6379` and `REDIS_NAMESPACE: staging-peperoncini`, and no `REDIS_URL` in the
-PM2 dump or `ecosystem.config.js`.
+This also renames staging's namespace, `staging-peperoncini` → `peperoncini-staging`. `env` (staging's Redis
+password): checks the login and that the user may use `peperoncini-staging:` first, and changes nothing if Redis
+refuses either; then, in each of `$H/staging/current/.env.production.local`, `.env.production`, `.env.local` that
+defines it, sets `REDIS_NAMESPACE` (or adds it to `.env.production.local`), then `REDIS_URL` the same way. It must
+end `All checks passed.`, showing `redis://peperoncini-staging:***@<host>:6379` and
+`REDIS_NAMESPACE: peperoncini-staging`, and no `REDIS_URL` or `REDIS_NAMESPACE` in the PM2 dump or
+`ecosystem.config.js`. Run the restart right after it (see "Order" above).
+
+Redis holds only short-lived SSE state there: per-session keys (`SETEX`, they expire on their own), the
+`<namespace>:sse:active` set (no TTL) and the `<namespace>:sse:broadcast` channel. Staging starts on an empty
+`peperoncini-staging:sse:active`; open SSE streams reconnect after the restart anyway.
 
 Then use staging: open the admin orders screen (SSE) at https://staging.pizzeria-peperoncini.ch and place a test
 order on the storefront; it must show up live. Checks:
@@ -132,23 +149,40 @@ order on the storefront; it must show up live. Checks:
   ACL LOG empty (a NOPERM there = a command missing from `redis_app_commands`).
 - `errors`: staging's error log, `0 of them mention Redis` (and no new error lines beyond what staging logs anyway).
 
+Then the old keys, which nothing uses any more (counts only; the helper refuses a namespace an ACL user may still use):
+
+```sh
+ssh -t IncServer bash /tmp/2026-10-redis-acl.sh orphans staging-peperoncini          # admin password: how many
+ssh -t IncServer bash /tmp/2026-10-redis-acl.sh orphans staging-peperoncini delete   # UNLINK them, must end 0 left
+```
+
+Expect a handful (the old `sse:active` set and session keys not expired yet). The finished
+`2026-10-leftovers-verify.sh` (#6) still names `staging-peperoncini` in its `LIVE_PREFIXES`; it is not run again.
+
 Rollback (works while the default user is on): as `peperoncini-staging`, take the user and password out of each
 file `env` edited (`perl -i -pe 's{^((?:export\s+)?REDIS_URL=["\x27]?redis://)[^@/]*@}{$1}' <file>`), then restart
-`pm2-peperoncini-staging`.
+`pm2-peperoncini-staging`. Staging then runs as `default` on `peperoncini-staging`, which is fine: the namespace
+need not go back. Taking it back to `staging-peperoncini` goes only with that URL rollback (the staging user may not
+use `staging-peperoncini:`), in the same files before the restart:
+`perl -i -pe 's{^((?:export\s+)?REDIS_NAMESPACE=["\x27]?)peperoncini-staging}{${1}staging-peperoncini}' <file>`.
+Staging's SSE state starts empty again, and the `peperoncini-staging:*` keys are orphaned in turn. To keep the old
+name for good, `redis_namespace` in `vars.yml` goes back too (PR, apply `--tags tenant`, pizzerias closed), then
+`orphans peperoncini-staging delete`. Once the default user is off (step 7), only that full way back works.
 
 ### 6. Production switch (pizzeria closed)
 
 ```sh
 ssh IncServer 'sudo bash /tmp/2026-10-redis-acl.sh mark'
-ssh -t IncServer sudo -iu peperoncini bash /tmp/2026-10-redis-acl.sh env peperoncini
+ssh -t IncServer sudo -iu peperoncini bash /tmp/2026-10-redis-acl.sh env peperoncini peperoncini-production
 ssh IncServer 'sudo systemctl restart pm2-peperoncini'
 ```
 
 `env` must end `All checks passed.`, with `redis://peperoncini:***@<host>:6379` and
-`REDIS_NAMESPACE: peperoncini-production`. Allow ~60 s of cold start, then https://www.pizzeria-peperoncini.ch 200.
-Open the admin orders screen (SSE), then: `clients` shows two `user=peperoncini`, ACL LOG empty; `errors` shows
-production's error log with `0 of them mention Redis`. After the next opening evening (orders, SSE to the tablets,
-the App jobs every 10 min): `errors` again, still 0 Redis lines, and orders came in as usual. Rollback as in 5.
+`REDIS_NAMESPACE: peperoncini-production` (unchanged: `already peperoncini-production`). Allow ~60 s of cold start,
+then https://www.pizzeria-peperoncini.ch 200. Open the admin orders screen (SSE), then: `clients` shows two
+`user=peperoncini`, ACL LOG empty; `errors` shows production's error log with `0 of them mention Redis`. After the
+next opening evening (orders, SSE to the tablets, the App jobs every 10 min): `errors` again, still 0 Redis lines,
+and orders came in as usual. Rollback as in 5 (the `REDIS_URL` part; production's namespace does not change).
 
 ### 7. Default user off (pizzerias closed)
 

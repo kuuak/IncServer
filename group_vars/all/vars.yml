@@ -81,7 +81,7 @@ tenants:
         cert: staging.pizzeria-peperoncini.ch
         basic_auth: false
         noindex: true
-        redis_namespace: staging-peperoncini
+        redis_namespace: peperoncini-staging
         deploy_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII6lLdsyTxkpfUYI5K1HAZMZkuC59ZIHvN0Qd1q4kzY1 peperoncini-staging-deploy
 
 # Each Environment's authorized_keys = these admin keys (unrestricted, for `ssh <user>@IncServer` from the admin
