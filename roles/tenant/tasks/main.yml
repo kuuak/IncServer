@@ -154,7 +154,8 @@
     that:
       - vault_redis_admin_password | default('') | length > 0
       - tenants | map(attribute='environments') | flatten | map(attribute='user')
-        | reject('in', (vault_tenant_redis_passwords | default({})).keys()) | list | length == 0
+        | reject('in', vault_tenant_redis_passwords | default({}) | dict2items | selectattr('value')
+                         | map(attribute='key') | list) | list | length == 0
     fail_msg: Fill vault_redis_admin_password and vault_tenant_redis_passwords first, or keep redis_default_user_enabled
   when: not redis_default_user_enabled
 
