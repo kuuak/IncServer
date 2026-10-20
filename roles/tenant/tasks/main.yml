@@ -149,14 +149,18 @@
 
 # --- Redis: one ACL user per Environment (#16) ----------------------------------------------
 # Users, their key/channel namespace and commands: `redis_*` in vars.yml. redis.conf stays stock but for `aclfile`.
-- name: Turning the default Redis user off needs the admin's and every Environment's password
+# Netdata's too: without it the collector keeps logging in as `default`, and its Redis charts stop.
+- name: Turning the default Redis user off needs the admin's, Netdata's and every Environment's password
   ansible.builtin.assert:
     that:
       - vault_redis_admin_password | default('') | length > 0
+      - vault_redis_netdata_password | default('') | length > 0
       - tenants | map(attribute='environments') | flatten | map(attribute='user')
         | reject('in', vault_tenant_redis_passwords | default({}) | dict2items | selectattr('value')
                          | map(attribute='key') | list) | list | length == 0
-    fail_msg: Fill vault_redis_admin_password and vault_tenant_redis_passwords first, or keep redis_default_user_enabled
+    fail_msg: >-
+      Fill vault_redis_admin_password, vault_redis_netdata_password and vault_tenant_redis_passwords first, or keep
+      redis_default_user_enabled
   when: not redis_default_user_enabled
 
 - name: Redis ACL users
