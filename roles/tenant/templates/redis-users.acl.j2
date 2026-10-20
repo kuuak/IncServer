@@ -1,0 +1,21 @@
+{#- Redis's ACL file takes no comments (a `#` line aborts its startup): the notes live here and in vars.yml.
+    Managed by Ansible (IncServer repo, roles/tenant, #16); loaded at start through `aclfile` in redis.conf, and by
+    the `Reload Redis ACLs` handler (ACL LOAD). Never ACL SETUSER / ACL SAVE on the box: the next apply undoes it.
+    `#<hex>` = SHA-256 of the password from the vault; users without a password in the vault are left out. -#}
+{% if redis_default_user_enabled %}
+user default on nopass ~* &* +@all
+{% else %}
+user default off resetkeys resetchannels -@all
+{% endif %}
+{% if vault_redis_admin_password | default('') | length > 0 %}
+user admin on #{{ vault_redis_admin_password | hash('sha256') }} ~* &* +@all
+{% endif %}
+{% if vault_redis_netdata_password | default('') | length > 0 %}
+user netdata on #{{ vault_redis_netdata_password | hash('sha256') }} resetkeys resetchannels -@all +ping +info +config|get
+{% endif %}
+{% for t in tenants %}
+{% for e in t.environments if (vault_tenant_redis_passwords | default({}))[e.user] | default('') | length > 0 %}
+{% set ns = e.redis_namespace | default(t.name ~ '-' ~ e.name) %}
+user {{ e.user }} on #{{ vault_tenant_redis_passwords[e.user] | hash('sha256') }} resetkeys ~{{ ns }}:* resetchannels &{{ ns }}:* -@all {{ redis_app_commands | map('regex_replace', '^', '+') | join(' ') }}
+{% endfor %}
+{% endfor %}

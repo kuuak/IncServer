@@ -1,0 +1,27 @@
+# ACL LOAD re-reads /etc/redis/users.acl (all or nothing: a rejected file keeps the old users) and drops every
+# connection of a non-default user; the apps and Netdata reconnect on their own. As `admin` once it exists, else
+# as the default user (first run, still without a password). Skipped, and reported ok, while the running Redis was
+# started without the aclfile (restart by hand first). no_log: the admin password comes in on stdin. To see a
+# failure: `redis-cli --user admin --askpass ACL LOAD` on the box.
+- name: Reload Redis ACLs
+  ansible.builtin.shell: |
+    set -eu
+    IFS= read -r REDISCLI_AUTH || true
+    export REDISCLI_AUTH
+    set -- --no-auth-warning --user admin
+    if [ "$(redis-cli "$@" ACL WHOAMI 2>/dev/null)" != admin ]; then unset REDISCLI_AUTH; set --; fi
+    conf=$(redis-cli "$@" CONFIG GET aclfile 2>&1) || true
+    for e in NOAUTH WRONGPASS NOPERM 'Could not connect'; do
+      case $conf in *"$e"*) echo "No admin access to Redis: $conf" >&2; exit 1 ;; esac
+    done
+    if [ "$conf" != "$(printf 'aclfile\n/etc/redis/users.acl')" ]; then
+      echo "aclfile not in use yet: restart redis-server by hand"; exit 0
+    fi
+    out=$(redis-cli "$@" ACL LOAD 2>&1) || true
+    [ "$out" = OK ] || { echo "ACL LOAD: $out" >&2; exit 1; }
+    echo loaded
+  args:
+    stdin: "{{ vault_redis_admin_password | default('') }}"
+  register: tenant_redis_acl_load
+  changed_when: tenant_redis_acl_load.stdout == 'loaded'
+  no_log: true

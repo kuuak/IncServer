@@ -147,6 +147,59 @@
   loop: "{{ tenant_pg.results }}"
   loop_control: { label: "{{ item.item.1.db }}" }
 
+# --- Redis: one ACL user per Environment (#16) ----------------------------------------------
+# Users, their key/channel namespace and commands: `redis_*` in vars.yml. redis.conf stays stock but for `aclfile`.
+- name: Turning the default Redis user off needs the admin's and every Environment's password
+  ansible.builtin.assert:
+    that:
+      - vault_redis_admin_password | default('') | length > 0
+      - tenants | map(attribute='environments') | flatten | map(attribute='user')
+        | reject('in', (vault_tenant_redis_passwords | default({})).keys()) | list | length == 0
+    fail_msg: Fill vault_redis_admin_password and vault_tenant_redis_passwords first, or keep redis_default_user_enabled
+  when: not redis_default_user_enabled
+
+- name: Redis ACL users
+  ansible.builtin.template:
+    src: redis-users.acl.j2
+    dest: /etc/redis/users.acl
+    owner: root
+    group: redis
+    mode: "0640"                 # redis reads it; ACL SAVE cannot write it
+    # A file Redis rejects would abort its next start (a reboot): try it in a throwaway server first (no TCP port, a
+    # socket in a temp dir, nothing saved). Still running after 2 s (timeout's 124) = loaded; a bad line exits 1 at
+    # once with Redis's own message.
+    validate: >-
+      sh -c 'd=$(mktemp -d) && timeout 2 redis-server --port 0 --unixsocket "$d/s" --save "" --appendonly no
+      --dir "$d" --aclfile "$1"; r=$?; rm -rf "$d"; [ $r -eq 124 ]' sh %s
+  notify: Reload Redis ACLs
+
+- name: Redis loads its users from that file
+  ansible.builtin.lineinfile:
+    path: /etc/redis/redis.conf
+    regexp: '^#?\s*aclfile\s'
+    line: aclfile /etc/redis/users.acl
+  # No restart handler: a restart drops every Environment's SSE broadcast for a moment. Restart by hand while the
+  # pizzerias are closed (docs/runbooks/2026-10-redis-acl.md); until then the next tasks report it.
+
+- name: Read which ACL file the running Redis uses
+  ansible.builtin.command: redis-cli CONFIG GET aclfile
+  register: tenant_redis_aclfile
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+# Default user on: Redis answers. Off: NOAUTH, and then the file is in use (nothing else turns that user off).
+- name: Redis needs a restart by hand to load users.acl (check mode and real runs report it, nothing restarts it)
+  ansible.builtin.debug:
+    msg: >-
+      The running Redis has aclfile '{{ (tenant_redis_aclfile.stdout_lines | default([]))[1] | default('') }}'
+      {{- '' if tenant_redis_aclfile.rc == 0 else ' (redis-cli: ' ~ tenant_redis_aclfile.stderr | default('') ~ ')' }}, not
+      /etc/redis/users.acl: systemctl restart redis-server while the pizzerias are closed
+  changed_when: true
+  when:
+    - "'NOAUTH' not in tenant_redis_aclfile.stdout | default('')"
+    - (tenant_redis_aclfile.stdout_lines | default([]))[1] | default('') != '/etc/redis/users.acl'
+
 # --- Scheduled app jobs (POST /api/cron/<job>, handoff step 8) --------------------------
 # Every `tenant_app_jobs` entry on every Environment, unless the Environment lists its own `app_jobs`. One service +
 # timer each, app-<user>-<job>; the runner reads CRON_SECRET from the release's env files at run time.

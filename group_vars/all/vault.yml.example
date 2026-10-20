@@ -35,3 +35,14 @@ vault_netdata_htpasswd: ""
 vault_tenant_db_passwords: {}
 #   tomate: "..."
 #   tomate-staging: "..."
+
+# Redis ACL users (#16), see `redis_app_commands` in vars.yml. Hex only (`openssl rand -hex 32`): the Environment's
+# password also goes into its REDIS_URL, where other characters would need URL escaping. /etc/redis/users.acl holds
+# SHA-256 hashes only; in clear on the box: each Environment's in its own .env.* (0600), Netdata's in
+# /etc/netdata/go.d/redis.conf (root:netdata 0640).
+# An Environment without a password gets no Redis user; turning the default user off needs all of them.
+vault_tenant_redis_passwords: {}   # keyed by Environment user, which is also the ACL user name
+#   peperoncini: "..."
+#   peperoncini-staging: "..."
+vault_redis_admin_password: ""     # ACL user `admin`, every key and command: `redis-cli --user admin` on the box
+vault_redis_netdata_password: ""   # ACL user `netdata`: PING, INFO, CONFIG GET only
