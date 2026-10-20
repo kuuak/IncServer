@@ -56,6 +56,8 @@ mailpit_smtp_allowed_v4:
 #               installed with `restrict` (no shell tricks: no pty, forwarding, agent)
 #   app_jobs    optional: names from `tenant_app_jobs` this Environment runs (default: all of them)
 #   noindex     optional: true = every response carries `X-Robots-Tag: noindex, nofollow` (staging; default false)
+#   redis_namespace  the app's REDIS_NAMESPACE: its Redis keys and SSE channel are `<namespace>:…`, and the Environment's
+#               Redis ACL user (named like `user`) may touch nothing else. Default `<tenant name>-<environment name>`
 tenants:
   - name: peperoncini
     label: Pizzeria Peperoncini
@@ -69,6 +71,7 @@ tenants:
         cert: pizzeria-peperoncini.ch
         # Apex -> www redirect and the legacy product-URL redirects; not worth templating for one site.
         vhost_file: pizzeria-peperoncini.ch.conf
+        redis_namespace: peperoncini-production
         deploy_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBZfhEGuNjIkauYvu+VEvceYe7RXDt2i539VtZ/inVjS peperoncini-production-deploy
       - name: staging
         user: peperoncini-staging
@@ -78,6 +81,7 @@ tenants:
         cert: staging.pizzeria-peperoncini.ch
         basic_auth: false
         noindex: true
+        redis_namespace: peperoncini-staging
         deploy_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII6lLdsyTxkpfUYI5K1HAZMZkuC59ZIHvN0Qd1q4kzY1 peperoncini-staging-deploy
 
 # Each Environment's authorized_keys = these admin keys (unrestricted, for `ssh <user>@IncServer` from the admin
@@ -113,6 +117,20 @@ tenant_backups_max_age_days: 14
 # but the newest). Rotated copies are excluded from restic (roles/backup/files/excludes.txt).
 # Production's out-log grows ~20 MB a day (delivery-order-app#630) and holds customer data, so keep it short.
 tenant_pm2_log_rotate: 14
+
+# Redis (role tenant, #16): one ACL user per Environment, named like its `user`, password in the vault
+# (`vault_tenant_redis_passwords`), allowed only `~<redis_namespace>:*` keys, `&<redis_namespace>:*` channels and these
+# commands: what delivery-order-app's src/core/services/redisService.ts runs (SSE bookkeeping and the cross-instance
+# broadcast; `get` is v1.4.1's, dropped on main). AUTH and HELLO need no grant. The app's REDIS_URL (in the release's
+# .env.* files, kept by every deploy) carries user and password: redis://<user>:<password>@<host>:6379, no /<db>.
+# Users live in /etc/redis/users.acl (`aclfile` in redis.conf); a change is loaded with ACL LOAD, which drops every
+# connection of a non-default user: the apps reconnect within seconds (SSE falls back to local delivery meanwhile).
+redis_app_commands: [get, setex, del, exists, sadd, srem, smembers, scard, publish, subscribe]
+# true = the stock `default` user (no password, every key and command) stays, for the switch-over: the apps connect as
+# it until their REDIS_URL carries their own user. false = off: then only `admin` (local admin, `redis-cli --user
+# admin`, password `vault_redis_admin_password`), `netdata` (its Redis collector) and the Environments get in.
+# Turn it off once every Environment and Netdata connect as their own user (docs/runbooks/2026-10-redis-acl.md).
+redis_default_user_enabled: true
 
 # --- Backup (restic -> Infomaniak Swiss Backup cluster 04, rclone remote KuuakIncServerBackup) ----
 # Script, units and excludes are shipped as they are on the box. /etc/restic/env and rclone.conf are

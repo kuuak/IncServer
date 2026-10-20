@@ -1,0 +1,52 @@
+# ACL LOAD re-reads /etc/redis/users.acl (all or nothing: a rejected file keeps the old users) and drops every
+# connection of a non-default user; the apps and Netdata reconnect on their own. As `admin`; as the default user
+# only while the running Redis has no `admin` user yet (stock, or started before the file had one). A running
+# `admin` that refuses the vault's password fails the handler (a wrong vault value, or a changed one: then the file
+# is written, and `redis-cli --user admin --askpass ACL LOAD` with the old password loads it). WRONGPASS reads the
+# same for a missing user and a wrong password, so the default user is asked whether `admin` exists. Skipped, and
+# reported ok, while the running Redis was started without the aclfile (restart by hand first). no_log: the admin
+# password comes in on stdin; so the next handler fails with the reason (never a password).
+- name: Reload Redis ACLs
+  ansible.builtin.shell: |
+    set -eu
+    IFS= read -r REDISCLI_AUTH || true
+    export REDISCLI_AUTH
+    set -- --no-auth-warning --user admin
+    who=$(redis-cli "$@" ACL WHOAMI 2>&1) || true
+    if [ "$who" != admin ]; then
+      unset REDISCLI_AUTH; set --
+      admin=$(redis-cli ACL GETUSER admin 2>&1) || true    # empty: no such user; flags…: it exists
+      case $who in *WRONGPASS*) who=WRONGPASS ;; esac    # AUTH failed: WRONGPASS (2 lines, then the fallback)
+      if [ -n "$admin" ]; then
+        case $admin in
+          flags*)
+            echo "The running Redis has an admin user, and it refuses vault_redis_admin_password ($who). users.acl" \
+              "is written: load it with the password Redis knows (redis-cli --user admin --askpass ACL LOAD)," \
+              "or fix the vault" >&2 ;;
+          *) echo "No admin access to Redis: as admin: $who; as default: $admin" >&2 ;;
+        esac
+        exit 1
+      fi
+    fi
+    conf=$(redis-cli "$@" CONFIG GET aclfile 2>&1) || true
+    for e in NOAUTH WRONGPASS NOPERM 'Could not connect'; do
+      case $conf in *"$e"*) echo "No admin access to Redis: $conf" >&2; exit 1 ;; esac
+    done
+    if [ "$conf" != "$(printf 'aclfile\n/etc/redis/users.acl')" ]; then
+      echo "aclfile not in use yet: restart redis-server by hand"; exit 0
+    fi
+    out=$(redis-cli "$@" ACL LOAD 2>&1) || true
+    [ "$out" = OK ] || { echo "ACL LOAD: $out" >&2; exit 1; }
+    echo loaded
+  args:
+    stdin: "{{ vault_redis_admin_password | default('') }}"
+  register: tenant_redis_acl_load
+  changed_when: tenant_redis_acl_load.stdout == 'loaded'
+  failed_when: false
+  no_log: true
+
+- name: Redis ACL reload failed
+  ansible.builtin.fail:
+    msg: "{{ tenant_redis_acl_load.stderr }}"
+  when: tenant_redis_acl_load.rc | default(0) != 0     # no rc: skipped (check mode)
+  listen: Reload Redis ACLs

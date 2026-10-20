@@ -18,6 +18,23 @@
   no_log: true
   when: vault_netdata_htpasswd | default('') | length > 0
 
+# Netdata's own discovery finds Redis on 127.0.0.1:6379 as job `local`, connecting as the default user, which goes off
+# (#16). A user job of the same name wins over the discovered one: same charts (redis_local), as ACL user `netdata`.
+- name: Redis collector as ACL user netdata
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (IncServer repo, roles/netdata). Redis ACL user `netdata` (roles/tenant, #16).
+      jobs:
+        - name: local
+          address: 'redis://netdata:{{ vault_redis_netdata_password }}@127.0.0.1:6379'
+    dest: /etc/netdata/go.d/redis.conf
+    owner: root
+    group: netdata
+    mode: "0640"
+  no_log: true
+  when: vault_redis_netdata_password | default('') | length > 0
+  notify: Restart netdata
+
 - name: Netdata in unattended-upgrades' allowed origins
   ansible.builtin.copy:
     src: 51unattended-upgrades-netdata
