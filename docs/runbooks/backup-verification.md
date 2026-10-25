@@ -41,6 +41,24 @@ ssh IncServer 'sudo sed -E "/^(\[|(type|auth|domain|tenant_domain|region|storage
 Both mask every value but the ones the template hard-codes; the last line of each shows whether the file ends with a
 newline (`\n`), as the rendered template does.
 
+The shapes cannot show a value that differs. Compare each value by hash instead (first 8 characters: a whole sha1 can
+be masked as key material on its way back), the box's as systemd parses `EnvironmentFile=`, the vault's as Ansible
+holds it; both print hashes only:
+
+```sh
+ssh IncServer 'sudo systemd-run --quiet --pipe --wait --collect -p EnvironmentFile=/etc/restic/env sh -c "printf %s \"\$RESTIC_REPOSITORY\" | sha1sum | cut -c1-8"'
+ssh IncServer 'sudo systemd-run --quiet --pipe --wait --collect -p EnvironmentFile=/etc/restic/env sh -c "printf %s \"\$RESTIC_PASSWORD\" | sha1sum | cut -c1-8"'
+ansible incserver -m ansible.builtin.debug -a "msg={{ {'RESTIC_REPOSITORY': (vault_restic_repository | hash('sha1'))[:8], 'RESTIC_PASSWORD': (vault_restic_password | hash('sha1'))[:8]} }}"
+ssh IncServer 'sudo sh -c "grep -E \"^(user|key|tenant) = \" /root/.config/rclone/rclone.conf | while IFS= read -r l; do printf \"%s \" \"\${l%% = *}\"; printf %s \"\${l#* = }\" | sha1sum | cut -c1-8; done"'
+ansible incserver -m ansible.builtin.debug -a "msg={{ {'user': (vault_swissbackup_user | hash('sha1'))[:8], 'key': (vault_swissbackup_password | hash('sha1'))[:8], 'tenant': (vault_swissbackup_tenant | hash('sha1'))[:8]} }}"
+```
+
+Filled 2026-10-25: every value matched (after one typo fixed in the vault), and both tasks still said `changed` for
+two differences nothing reads: the box's `RESTIC_REPOSITORY="…"` was quoted (systemd drops the quotes; the template
+writes none, and `vault_restic_password` has no character that would need them), and its `rclone.conf` began with an
+empty line (rclone ignores it). The apply of 2026-10-25 rewrote both files without them; `--check --diff --tags
+backup,healthchecks` on 2026-10-26: `changed=0`, both tasks `ok`.
+
 ## Apply and first monthly check (the owner)
 
 Any time except around 00:00; nothing is restarted (one `daemon-reload`).
@@ -103,12 +121,13 @@ Paste the `RESULT:` line.
 
 | Date | Database | RESULT line | By |
 |---|---|---|---|
-| | `peperoncini-staging` | | |
-| | `pizzeriapeperoncini` | | |
+| 2026-10-25 22:16 | `peperoncini-staging` | `RESULT: PASS 2026-10-25 peperoncini-staging from snapshot 80d900f4 (2026-10-25_00:00:03): tables: 26, equal: 26, count differs: 0, only on one side: 0; dump vs disk: identical` | owner |
+| 2026-10-25 22:17 | `pizzeriapeperoncini` | `RESULT: COUNTS DIFFER 2026-10-25 pizzeriapeperoncini from snapshot 80d900f4 (2026-10-25_00:00:03): tables: 26, equal: 12, count differs: 14, only on one side: 0; dump vs disk: identical` (all 14 live > restored: that evening's 21 orders and their rows; re-run below) | owner |
+| 2026-10-26 00:08 | `pizzeriapeperoncini` | `RESULT: PASS 2026-10-26 pizzeriapeperoncini from snapshot 7c70fc5e (2026-10-26_00:00:03): tables: 26, equal: 26, count differs: 0, only on one side: 0; dump vs disk: identical` | owner |
 
 ## Monthly check log
 
 | Date | How | Result |
 |---|---|---|
-| | by hand after the apply (subset 10/12) | |
+| 2026-10-25 22:14 | by hand after the apply (subset 10/12) | `Result=success`, `no errors were found`: group 10 = 13 of 142 packs, 53 snapshots, 5 s |
 | 2026-11-01 | timer (subset 11/12) | |
