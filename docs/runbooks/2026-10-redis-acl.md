@@ -186,10 +186,14 @@ and orders came in as usual. Rollback as in 5 (the `REDIS_URL` part; production'
 
 ### 7. Default user off (pizzerias closed)
 
-Only when `clients` shows no `user=default` connection at all. Set `redis_default_user_enabled: false` in
-`group_vars/all/vars.yml` (PR), then:
+Only when `clients` shows no `user=default` connection at all (2026-10-31, after that evening's service: none).
+`redis_default_user_enabled: false` in `group_vars/all/vars.yml` (merged with the PR after that check), then, with
+the helper copied again (`/tmp` does not survive a reboot) and the ACL LOG cleared first: until 2026-10-31 every `env`
+and `test` run left one `acl|whoami` NOPERM there (the login probe, now an `AUTH`, which logs nothing when it works):
 
 ```sh
+scp docs/runbooks/2026-10-redis-acl.sh IncServer:/tmp/
+ssh -t IncServer redis-cli --user admin --askpass ACL LOG RESET
 ssh IncServer 'sudo bash /tmp/2026-10-redis-acl.sh mark'
 ansible-playbook site.yml --check --diff --tags tenant < /dev/null > check-16-off.log 2>&1   # only users.acl's first line
 ansible-playbook site.yml --tags tenant < /dev/null > apply-16-off.log 2>&1                  # + Reload Redis ACLs: changed
