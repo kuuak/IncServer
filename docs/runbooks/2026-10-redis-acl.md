@@ -209,3 +209,6 @@ hurry, on the box: `redis-cli --user admin --askpass ACL SETUSER default on nopa
 apply).
 
 Then close the row in `2026-09-cleanup.md`.
+
+Done 2026-11-01 00:08: `PING` → `NOAUTH`, no `default` connection, ACL LOG empty after the reload, step 4's tests
+19/19 both ways, 0 Redis lines in the PM2 error logs.
