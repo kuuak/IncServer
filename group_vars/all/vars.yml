@@ -130,7 +130,7 @@ redis_app_commands: [get, setex, del, exists, sadd, srem, smembers, scard, publi
 # it until their REDIS_URL carries their own user. false = off: then only `admin` (local admin, `redis-cli --user
 # admin`, password `vault_redis_admin_password`), `netdata` (its Redis collector) and the Environments get in.
 # Turn it off once every Environment and Netdata connect as their own user (docs/runbooks/2026-10-redis-acl.md).
-redis_default_user_enabled: true
+redis_default_user_enabled: false
 
 # --- Backup (restic -> Infomaniak Swiss Backup cluster 04, rclone remote KuuakIncServerBackup) ----
 # Script, units and excludes are shipped as they are on the box. /etc/restic/env and rclone.conf are

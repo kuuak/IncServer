@@ -76,8 +76,9 @@ of the same name (`<tenant>-<environment>`: `peperoncini-production`, `peperonci
 and run only `redis_app_commands`, the ones delivery-order-app uses for SSE (`vars.yml`). The app logs in through its
 `REDIS_URL` (`redis://<user>:<password>@<host>:6379`, no `/<db>`) in the release's `.env.*` files, which every deploy
 carries over. Besides them: `admin` (local admin, every key and command: `redis-cli --user admin --askpass`) and
-`netdata` (its collector: `PING`, `INFO`, `CONFIG GET`). The stock `default` user (no password, everything) is on
-while `redis_default_user_enabled` is true, for the switch-over, and off once it is false.
+`netdata` (its collector: `PING`, `INFO`, `CONFIG GET`). The stock `default` user (no password, everything) was on
+for the switch-over (`redis_default_user_enabled: true`) and is off (`false`) from the rollout's step 7 on: unauthenticated
+`redis-cli PING` gets `NOAUTH`, and a look around needs `redis-cli --user admin --askpass`.
 
 The users live in `/etc/redis/users.acl` (template `redis-users.acl.j2`, SHA-256 hashes only, `aclfile` in
 `redis.conf`); the role tries a new file in a throwaway Redis before writing it, and its `Reload Redis ACLs` handler

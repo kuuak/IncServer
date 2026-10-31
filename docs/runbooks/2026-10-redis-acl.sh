@@ -44,6 +44,13 @@ finish() {
 	if [ "$fails" = 0 ]; then echo "All checks passed."; else echo "Some checks FAILED."; fi
 	exit "$fails"
 }
+# login_as <acl user>: Redis's reply to AUTH <user> <REDISCLI_AUTH> (OK, or WRONGPASS…). Every user may run AUTH, and
+# a login that works leaves nothing in the ACL LOG (ACL WHOAMI did: an app user may not run it, a logged NOPERM). The
+# password goes in on stdin from the printf builtin, never in argv.
+login_as() {
+	printf 'AUTH %s %s\n' "$1" "$REDISCLI_AUTH" |
+		env -u REDISCLI_AUTH timeout 3 redis-cli --no-auth-warning 2>&1 | head -1
+}
 mark_file=/root/cleanup-2026-09/redis-acl-16.mark
 
 cmd_test() {
@@ -66,12 +73,8 @@ cmd_test() {
 	}
 
 	echo "== $user, own namespace $own:, other $other:"
-	# An app user may not run ACL WHOAMI: NOPERM here means the password was accepted.
-	login=$(r ACL WHOAMI | head -1)
-	case $login in
-	NOPERM* | "$user") pass "logged in as $user" ;;
-	*) fail "login as $user: ${login:0:100}"; finish ;;
-	esac
+	login=$(login_as "$user")
+	if [ "$login" = OK ]; then pass "logged in as $user"; else fail "login as $user: ${login:0:100}"; finish; fi
 
 	echo "-- own keys and channels work"
 	expect "write own key (SETEX $own:acl-test)" '^OK$' SETEX "$own:acl-test" 60 acl-test
@@ -107,12 +110,10 @@ cmd_env() {
 	ask_password "$user"
 	# Hex only: anything else would need URL escaping in REDIS_URL (vault.yml.example).
 	[[ $REDISCLI_AUTH =~ ^[0-9a-f]{32,}$ ]] || { fail "the password is not hex (openssl rand -hex 32)"; finish; }
-	# Before touching a file: does Redis take this password? (An app user may not run ACL WHOAMI: NOPERM = logged in.)
-	login=$(timeout 3 redis-cli --no-auth-warning --user "$user" ACL WHOAMI 2>&1 | head -1)
-	case $login in
-	NOPERM* | "$user") pass "Redis accepts $user with this password" ;;
-	*) fail "Redis login as $user: ${login:0:100} (no file changed)"; finish ;;
-	esac
+	# Before touching a file: does Redis take this password?
+	login=$(login_as "$user")
+	if [ "$login" = OK ]; then pass "Redis accepts $user with this password"
+	else fail "Redis login as $user: ${login:0:100} (no file changed)"; finish; fi
 	# ...and may this user use the namespace? (An app on its own user with another namespace gets NOPERM everywhere.)
 	probe=$(timeout 3 redis-cli --no-auth-warning --user "$user" SCARD "$want_ns:sse:active" 2>&1 | head -1)
 	if [[ $probe =~ ^[0-9]+$ ]]; then pass "$user may use $want_ns:"
@@ -177,11 +178,11 @@ cmd_clients() {
 	echo "Connections by ACL user and protocol (this one included, as admin; resp=3 is Netdata's HELLO 3, the apps use 2):"
 	awk '{ u = r = ""; for (i = 1; i <= NF; i++) { if ($i ~ /^user=/) u = $i; if ($i ~ /^resp=/) r = $i }; print u, r }' \
 		<<<"$list" | sort | uniq -c | sed 's/^ */      /'
-	# `test` and `env` probe the login with ACL WHOAMI, which an app user may not run: those entries are left out.
-	echo "ACL LOG (denials since the last ACL LOG RESET, but this helper's ACL WHOAMI probes): entries user reason object"
+	# `test`'s refused commands are denials too: run `ACL LOG RESET` after it.
+	echo "ACL LOG (denials since the last ACL LOG RESET): entries user reason object"
 	redis-cli "${a[@]}" ACL LOG | awk '
 		prev == "reason" { r = $0 } prev == "object" { o = $0 }
-		prev == "username" && o != "acl|whoami" { print $0, r, o } { prev = $0 }' | sort | uniq -c | sed 's/^ */      /'
+		prev == "username" { print $0, r, o } { prev = $0 }' | sort | uniq -c | sed 's/^ */      /'
 	echo "      (end)"
 	finish
 }
