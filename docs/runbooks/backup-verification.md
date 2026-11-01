@@ -130,4 +130,5 @@ Paste the `RESULT:` line.
 | Date | How | Result |
 |---|---|---|
 | 2026-10-25 22:14 | by hand after the apply (subset 10/12) | `Result=success`, `no errors were found`: group 10 = 13 of 142 packs, 53 snapshots, 5 s; start + success ping on healthchecks.io |
-| 2026-11-01 | timer (subset 11/12) | |
+| 2026-11-01 02:30 | timer (subset 11/12) | `Result=success`, `no errors were found`: group 11 = 17 of 143 packs, 54 snapshots, 8 s |
+| 2026-12-01 | timer (subset 12/12) | |
